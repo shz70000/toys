@@ -949,12 +949,20 @@ function tableHTML(rows,{running=false, showParty=true}={}){
       <td class="num">${esc(money(out))}</td><td class="num">${esc(money(inn))}</td>
       ${running?`<td class="num">${esc(money(out-inn))}</td>`:""}</tr></tfoot></table>`;
 }
+const inPreview = ()=>{ try{ return window.self !== window.top; }catch(e){ return true; } };
 function doPrint(title,sub,meta,inner){
   $("#printArea").innerHTML =
     `<div class="pr-head"><h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
      <div class="pr-sign"><div>Receiver's signature</div><div>Authorised signature</div></div>`;
-  window.print();
+  // Previews run the page inside a frame that blocks printing, so say so
+  // rather than appearing to do nothing.
+  if(inPreview())
+    return alert("Printing is blocked inside this preview window.\n\n"+
+      "Open the app from its own web address (or the installed app) and the "+
+      "Print / Save-as-PDF dialog will appear normally.");
+  try{ window.print(); }
+  catch(e){ alert("This browser would not open the print dialog.\n\n"+e.message); }
 }
 function printStatement(id){
   const p=party(id); if(!p) return;
@@ -1001,12 +1009,21 @@ async function saveFile(text, name, mime){
       if(code === "too_large"){
         alert("This file is too big to save here (over 16 MB)."); return false;
       }
-      // extension not allowed here, or some other host problem — try the link,
-      // and if that is also blocked the message below explains why.
+      if(code === "extension_not_enabled" || code === "rejected_extension"){
+        // e.g. .csv is not permitted in a preview — offer the same text as .txt
+        const ext = name.split(".").pop();
+        try{
+          await dl.save({filename:name.replace(/\.[^.]+$/,"")+".txt", data:text});
+          alert("Saved as a .txt file — this preview does not allow ."+ext+
+                " files.\n\nRename it to ."+ext+" and it opens normally.");
+          return true;
+        }catch(e2){ /* fall through */ }
+      }
+      // some other host problem — try the ordinary link, then explain
       linkSave(text,name,mime);
-      alert("This preview could not save “"+name+"”.\n\n"+
-            "Backups work normally once the app is installed from your own "+
-            "GitHub Pages link.");
+      alert("This preview window could not save “"+name+"”.\n\n"+
+            "Open the app from its own web address (or the installed app) and "+
+            "saving works normally.");
       return false;
     }
   }
@@ -1065,6 +1082,28 @@ async function decryptBackup(obj, pw){
   const pt  = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64.dec(obj.iv)},
     key, b64.dec(obj.data));
   return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* Ask for the PIN again before something destructive. Resolves true when the
+   PIN matches (or when no PIN is set), false if cancelled. */
+function askPinConfirm(msg){
+  return new Promise(resolve=>{
+    if(!hasPin()) return resolve(true);
+    openSheet(`<h3>Confirm with your PIN</h3>
+      <p class="muted">${msg}</p>
+      <label>PIN</label>
+      <input id="cpin" type="password" inputmode="numeric" maxlength="4" autocomplete="off">
+      <p class="muted" id="cpErr" style="color:var(--pay);min-height:1.1em"></p>
+      <button class="btn danger" id="cpGo">Confirm</button>
+      <button class="btn sec" id="cpCancel">Cancel</button>`);
+    $("#cpin").focus();
+    $("#cpCancel").onclick = ()=>{ closeSheet(); resolve(false); };
+    $("#cpGo").onclick = async ()=>{
+      const h = await pinHash($("#cpin").value, db.settings.pinSalt);
+      if(h === db.settings.pinHash){ closeSheet(); resolve(true); }
+      else { $("#cpErr").textContent = "Wrong PIN."; $("#cpin").value=""; }
+    };
+  });
 }
 
 /* password sheet — resolves to the password, or null if cancelled */
@@ -1205,10 +1244,33 @@ $("#pinOff").onclick = ()=>{
   if(!confirm("Turn off the PIN? The app will open without asking.")) return;
   db.settings.pinHash=null; db.settings.pinSalt=null; save(); renderSettings();
 };
+/* Erasing is the one irreversible action in the app, so it asks properly:
+   an in-app sheet (never a native confirm, which some browsers suppress),
+   a backup offer, a typed confirmation, and the PIN if one is set. */
 $("#wipe").onclick = ()=>{
-  if(!confirm("Erase ALL contacts and entries? This cannot be undone.")) return;
-  if(!confirm("Really erase everything? Make sure you have a backup first.")) return;
-  db = blank(); storageOK = true; writeNow(); refreshPartyOptions(); go("home");
+  const nP = db.parties.length, nT = live().length;
+  if(!nP && !nT) return alert("There is nothing to erase — the ledger is already empty.");
+  openSheet(`<h3 style="color:var(--pay)">⚠️ Erase everything?</h3>
+    <p>This permanently deletes <b>${nP} contact${nP===1?"":"s"}</b> and
+       <b>${nT} entr${nT===1?"y":"ies"}</b> from this device.</p>
+    <p style="color:var(--pay)"><b>You will NOT be able to get this data back.</b>
+       There is no undo and no copy kept anywhere — unless you have a backup file.</p>
+    <button class="btn" id="erBk">🔐 Back up first (recommended)</button>
+    <label>Type <b>ERASE</b> below to confirm</label>
+    <input id="erTxt" autocomplete="off" autocapitalize="characters" placeholder="ERASE">
+    <button class="btn danger" id="erGo">Erase everything</button>
+    <button class="btn sec" id="erCancel">Cancel — keep my data</button>`);
+  $("#erCancel").onclick = closeSheet;
+  $("#erBk").onclick = ()=>{ closeSheet(); backupNow(); };
+  $("#erGo").onclick = async ()=>{
+    if($("#erTxt").value.trim().toUpperCase() !== "ERASE")
+      return alert('Type ERASE in the box to confirm, or tap Cancel.');
+    closeSheet();
+    if(!await askPinConfirm("Enter your PIN to erase everything.")) return;
+    db = blank(); storageOK = true; bannerHidden = false;
+    writeNow(); refreshPartyOptions(); go("home");
+    alert("All data erased.");
+  };
 };
 
 /* ====================== backup reminder ====================== */
@@ -1231,9 +1293,30 @@ function backupReminder(){
 /* ====================== boot ====================== */
 applyTheme(); initFilters(); refreshPartyOptions();
 $("#pSearch").value="";
+/* First run: offer a PIN straight away, since this holds money records. */
+function welcomeSheet(){
+  openSheet(`<h3>Welcome to Khata 👋</h3>
+    <p class="muted">This is your private ledger for money given and received.
+    Everything stays on this phone — nothing is uploaded anywhere.</p>
+    <p><b>For your safety and privacy, set a PIN</b> so nobody who picks up your
+    phone can open your accounts.</p>
+    <button class="btn" id="wPin">🔒 Set up a PIN</button>
+    <button class="btn sec" id="wSkip">Not now</button>
+    <p class="muted" style="margin-top:12px">You can add or change it any time in
+    <b>Settings → App lock</b>. Remember to back up regularly too — an encrypted
+    backup is the only way to move your data to another phone.</p>`);
+  const seen = ()=>{ db.settings.seenWelcome = true; save(); };
+  $("#wSkip").onclick = ()=>{ seen(); closeSheet(); };
+  $("#wPin").onclick  = ()=>{ seen(); closeSheet(); startLock("set"); };
+}
+
 go("home");
 if(hasPin()) startLock("verify");
-else { unlockedAt = Date.now(); backupReminder(); }
+else {
+  unlockedAt = Date.now();
+  backupReminder();
+  if(!db.settings.seenWelcome) setTimeout(welcomeSheet, 500);
+}
 // Flush any debounced save when the app is closed or backgrounded.
 // visibilitychange is the reliable one on mobile; beforeunload often never fires.
 function flush(){ clearTimeout(saveTimer); writeNow(); }

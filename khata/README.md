@@ -87,6 +87,20 @@ Party screen → **Print / PDF**, or Reports → **Print / PDF**.
 In the print dialog choose **Save as PDF** for a PDF, or a printer for paper.
 Statements include a running balance, totals and signature lines.
 
+## Erasing data
+
+Settings → **Erase all data** is the only irreversible action. It asks in an
+in-app sheet (never a browser popup, which some contexts suppress), offers to
+back up first, requires you to type **ERASE**, and then asks for your PIN if one
+is set. Nothing is deleted until all of that passes.
+
+## Running inside a preview window
+
+If the app is opened inside a preview frame rather than at its own web address,
+the browser blocks printing and restricts file saving. The app now says so
+instead of appearing to do nothing. Install it from your own Pages URL and
+Print/PDF, CSV export and backups all behave normally.
+
 ## Limitations (honest list)
 
 - **No automatic background Drive upload.** Browsers don't let a web app run
@@ -108,4 +122,4 @@ Statements include a running balance, totals and signature lines.
 
 Colours live at the top of `index.html` in `:root`. Categories are the
 `CATS` array near the top of the script. After changing any file, bump
-`CACHE = "khata-v1"` in `sw.js` so phones fetch the new version.
+`CACHE` in `sw.js` so phones fetch the new version.
