@@ -5,13 +5,22 @@ This all about toys at very reasonable price with quick deliveries.
 ## Live site
 
 Deployed automatically with GitHub Pages via GitHub Actions (see
-`.github/workflows/static.yml`). Once Pages is enabled in the repo
-settings (Settings → Pages → Source: **GitHub Actions**), the site is
-live at:
+`.github/workflows/static.yml`). The site is live at:
 
 ```
 https://shz70000.github.io/toys/
 ```
+
+This address is free, comes with HTTPS automatically, and needs no setup
+beyond Settings → Pages → Source: **GitHub Actions**.
+
+### A note on custom domains
+
+Settings → Pages has a "Custom domain" box. Leave it **empty** unless you
+have actually bought a domain and pointed its DNS at GitHub. GitHub does
+not verify that you own whatever you type there, so setting a domain you
+don't own makes the site unreachable — visitors land on the registrar's
+"this domain is for sale" page instead of these pages.
 
 ## Structure
 
