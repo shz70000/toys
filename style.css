@@ -1,0 +1,122 @@
+/* Shared styles for the toys site — linked by every page as ./style.css */
+
+:root {
+  --bg: #fdf6ec;
+  --card-bg: #ffffff;
+  --text: #2d2a26;
+  --accent: #ff6f61;
+  --accent-dark: #e85a4f;
+  --muted: #6b6560;
+  --border: #eee0d0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  padding: 24px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 2.2rem;
+  margin-bottom: 8px;
+}
+
+body > p {
+  max-width: 720px;
+  margin: 0 auto 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+nav.site-nav {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+
+nav.site-nav a {
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--accent-dark);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+nav.site-nav a:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.product {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.product:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1);
+}
+
+.product img {
+  max-width: 100%;
+  height: 160px;
+  object-fit: contain;
+  margin-bottom: 10px;
+}
+
+.product h3 {
+  font-size: 0.95rem;
+  min-height: 3em;
+  margin: 6px 0;
+}
+
+.product p {
+  margin: 2px 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.product a {
+  margin-top: 10px;
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.product a:hover {
+  background: var(--accent-dark);
+}
