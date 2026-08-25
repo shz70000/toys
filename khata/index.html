@@ -127,6 +127,15 @@ textarea{resize:vertical;min-height:60px}
   background:var(--bg);font-size:.82rem}
 .chip.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
 
+/* backup banner */
+.banner{display:flex;align-items:center;gap:10px;justify-content:space-between;
+  background:var(--card);border:1px solid var(--border);border-left:4px solid #f59e0b;
+  border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.86rem}
+.banner .bactions{display:flex;gap:6px;flex:0 0 auto}
+.banner button{padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;
+  font-weight:600;font-size:.82rem}
+.banner button#bkBannerX{background:transparent;color:var(--muted);font-size:1rem;padding:6px 8px}
+
 /* storage meter */
 .meter{height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin:8px 0 6px}
 .meter span{display:block;height:100%;background:var(--accent);border-radius:99px}
@@ -204,6 +213,13 @@ body.locked #lock{display:flex}
 <main>
   <!-- HOME -->
   <section id="v-home">
+    <div class="banner hide" id="bkBanner">
+      <span>🛡️ <b id="bkBannerTxt"></b></span>
+      <span class="bactions">
+        <button id="bkBannerGo">Back up</button>
+        <button id="bkBannerX" aria-label="Dismiss">✕</button>
+      </span>
+    </div>
     <div class="searchrow">
       <input class="search" id="pSearch" placeholder="🔍 Search name or phone…">
       <button class="addbtn" id="addParty">＋ Contact</button>
@@ -266,12 +282,15 @@ body.locked #lock{display:flex}
     <div class="card pad">
       <h2>Backup &amp; restore</h2>
       <p class="muted" id="lastBk"></p>
-      <button class="btn" id="bkNow">⬇️ Backup now (save to Drive)</button>
+      <button class="btn" id="bkNow">🔐 Backup now (encrypted)</button>
       <button class="btn sec" id="bkRestore">⬆️ Restore from backup file</button>
       <input type="file" id="bkFile" accept=".json,application/json" class="hide">
-      <p class="muted" style="margin-top:12px">Tip: after tapping Backup, choose
-      <b>Google Drive</b> in the share/save menu. Turn on Drive's own “Available
-      offline” so it syncs automatically.</p>
+      <p class="muted" style="margin-top:12px">Backups only happen when you tap
+      the button — nothing is ever saved automatically. The file is locked with
+      <b>AES-256</b> using a password you choose, so it is safe to keep in Google
+      Drive or email. Restore it on any phone with the same password.</p>
+      <p class="muted"><b>⚠️ Lose the password and the backup is gone for good</b> —
+      there is no recovery, by design.</p>
     </div>
     <div class="card pad">
       <h2>Preferences</h2>
@@ -437,6 +456,21 @@ function newSalt(){
 }
 
 let lockMode="verify", lkBuf="", lkNewPin="", lkTries=0, unlockedAt=0;
+let lockUntil=0, cdTimer=null;
+/* while cooling down, the keypad is disabled and shows the remaining time */
+function countdown(){
+  clearTimeout(cdTimer);
+  const left = Math.ceil((lockUntil - Date.now())/1000);
+  const pad = $("#lkPad");
+  if(left > 0){
+    pad.style.opacity = ".35"; pad.style.pointerEvents = "none";
+    lkSay(`Too many wrong attempts. Wait ${left}s.`, true);
+    cdTimer = setTimeout(countdown, 500);
+  }else{
+    pad.style.opacity = ""; pad.style.pointerEvents = "";
+    lkSay("You can try again now.", false);
+  }
+}
 function setLocked(on){
   document.body.classList.toggle("locked", on);
   if(on){ lkBuf=""; drawDots(); } else { unlockedAt = Date.now(); }
@@ -482,14 +516,24 @@ async function lkSubmit(){
   // verify
   const h = await pinHash(pin, db.settings.pinSalt);
   if(h === db.settings.pinHash){
-    lkTries=0; setLocked(false); render(); backupReminder(); return;
+    lkTries=0; db.settings.pinFails=0; save();
+    setLocked(false); render(); return;
   }
+  /* Throttle guessing: a 4-digit PIN is only 10,000 combinations, so make
+     repeated attempts progressively expensive. */
   lkTries++; lkBuf=""; drawDots();
+  db.settings.pinFails = (db.settings.pinFails||0) + 1; save();
+  if(db.settings.pinFails >= 5){
+    const wait = Math.min(300, 5 * Math.pow(2, db.settings.pinFails - 5)); // 5s,10s,20s… max 5min
+    lockUntil = Date.now() + wait*1000;
+    return countdown();
+  }
   lkSay(lkTries>=3 ? "Still wrong. Tap “Forgot?” if you're stuck."
                    : "Wrong PIN, try again.", true);
 }
 $("#lkPad").addEventListener("click", async e=>{
   const b=e.target.closest("button"); if(!b) return;
+  if(Date.now() < lockUntil) return;          // cooling down after wrong guesses
   const k=b.dataset.k;
   if(k==="del"){ lkBuf=lkBuf.slice(0,-1); drawDots(); return; }
   if(k==="forgot"){
@@ -549,6 +593,7 @@ function render(){
   if(view==="home")  renderHome();
   if(view==="party") renderParty();
   if(view==="set")   renderSettings();
+  backupReminder();
 }
 function renderSummary(){
   let get=0,pay=0;
@@ -979,11 +1024,92 @@ function downloadCSV(rows,base){
   return saveFile("﻿"+[head.map(q).join(","),...body].join("\r\n"),
     `${base}-${new Date().toISOString().slice(0,10)}.csv`, "text/csv;charset=utf-8");
 }
+/* ====================== encrypted backup ======================
+   The file is real AES-256-GCM, with the key stretched from your password by
+   PBKDF2 (250k rounds). Without the password the contents cannot be read —
+   which also means a lost password means a lost backup. Nothing is ever
+   written to the device unless you tap Backup yourself. */
+const KDF_ITER = 250000;
+const b64 = {
+  enc(buf){                                   // chunked: big ledgers blow the stack otherwise
+    const a = new Uint8Array(buf); let s = "";
+    for(let i=0;i<a.length;i+=0x8000) s += String.fromCharCode.apply(null, a.subarray(i,i+0x8000));
+    return btoa(s);
+  },
+  dec: s => Uint8Array.from(atob(s), c=>c.charCodeAt(0))
+};
+function cryptoReady(){ return !!(window.crypto && crypto.subtle); }
+async function deriveKey(pw, salt){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw),
+    "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2", salt, iterations:KDF_ITER, hash:"SHA-256"},
+    base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function encryptBackup(pw){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveKey(pw, salt);
+  const ct   = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key,
+    new TextEncoder().encode(JSON.stringify(db)));
+  return JSON.stringify({
+    format:"khata-backup", version:1, encrypted:true,
+    cipher:"AES-256-GCM", kdf:"PBKDF2-SHA256", iterations:KDF_ITER,
+    salt:b64.enc(salt), iv:b64.enc(iv), data:b64.enc(ct),
+    savedAt:new Date().toISOString(),
+    note:"Encrypted Khata backup. Restore it from the Khata app with your password."
+  }, null, 2);
+}
+async function decryptBackup(obj, pw){
+  const key = await deriveKey(pw, b64.dec(obj.salt));
+  const pt  = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64.dec(obj.iv)},
+    key, b64.dec(obj.data));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* password sheet — resolves to the password, or null if cancelled */
+function askPassword({title, msg, confirm:needConfirm, action}){
+  return new Promise(resolve=>{
+    openSheet(`<h3>${esc(title)}</h3>
+      <p class="muted">${msg}</p>
+      <label>Password</label>
+      <input id="pw1" type="password" autocomplete="new-password" placeholder="at least 6 characters">
+      ${needConfirm?`<label>Repeat password</label>
+      <input id="pw2" type="password" autocomplete="new-password">`:""}
+      <p class="muted" id="pwErr" style="color:var(--pay);min-height:1.1em"></p>
+      <button class="btn" id="pwGo">${esc(action)}</button>
+      <button class="btn sec" id="pwCancel">Cancel</button>`);
+    const done = v =>{ closeSheet(); resolve(v); };
+    $("#pwCancel").onclick = ()=> done(null);
+    $("#pw1").focus();
+    $("#pwGo").onclick = ()=>{
+      const a = $("#pw1").value;
+      if(a.length < 6) return $("#pwErr").textContent = "Use at least 6 characters.";
+      if(needConfirm && a !== $("#pw2").value)
+        return $("#pwErr").textContent = "The two passwords don't match.";
+      done(a);
+    };
+    $("#pw1").onkeydown = e=>{ if(e.key==="Enter" && !needConfirm) $("#pwGo").click(); };
+  });
+}
+
 async function backupNow(){
-  const ok = await saveFile(JSON.stringify(db,null,2),
-    `khata-backup-${new Date().toISOString().slice(0,10)}.json`, "application/json");
-  if(!ok) return;                       // don't claim a backup that never saved
+  if(!cryptoReady()) return alert("Encrypted backup needs a secure (https) connection.");
+  const pw = await askPassword({
+    title:"Protect this backup",
+    msg:"The file is encrypted with this password. Keep it safe — "+
+        "<b>without it the backup cannot be opened by anyone, including you</b>.",
+    confirm:true, action:"Encrypt and save"});
+  if(!pw) return;                                   // cancelled — write nothing
+  let text;
+  try{ text = await encryptBackup(pw); }
+  catch(e){ return alert("Could not encrypt the backup.\n\n"+e.message); }
+  const name = `khata-backup-${new Date().toISOString().slice(0,10)}.json`;
+  const ok = await saveFile(text, name, "application/json");
+  if(!ok) return;                                   // don't claim a backup that never saved
   db.settings.lastBackup = new Date().toISOString(); save(); renderSettings();
+  alert("Backup saved and encrypted.\n\nMove it to Google Drive to keep it safe, "+
+        "and remember the password — it is the only way back in.");
 }
 function renderSettings(){
   const lb = db.settings.lastBackup;
@@ -1020,26 +1146,54 @@ function renderSettings(){
     : `${pct.toFixed(1)}% used — room for roughly ${left.toLocaleString()} more entries.`;
 }
 $("#bkNow").onclick     = backupNow;
-$("#exCsv").onclick     = ()=> downloadCSV(live(),"khata-all");
+$("#bkBannerGo").onclick = backupNow;
+$("#bkBannerX").onclick  = ()=>{ bannerHidden = true; backupReminder(); };
+$("#exCsv").onclick     = ()=>{
+  if(!confirm("The CSV is for opening in Excel or Sheets, so it is NOT encrypted —\n"+
+     "anyone who opens the file can read it.\n\nUse Backup for a protected copy.\n\nExport anyway?")) return;
+  downloadCSV(live(),"khata-all");
+};
 $("#bkRestore").onclick = ()=> $("#bkFile").click();
 $("#bkFile").onchange = e=>{
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader();
-  r.onload = ()=>{
-    try{
-      const d=JSON.parse(r.result);
-      if(!d || !Array.isArray(d.parties) || !Array.isArray(d.txns))
-        throw new Error("not a Khata backup");
-      if(!confirm(`Restore ${d.parties.length} contacts and ${d.txns.length} entries?\n\nThis REPLACES everything currently in the app.`)) return;
-      db = Object.assign(blank(), d,
-        {settings:Object.assign(blank().settings, d.settings||{})});
-      storageOK = true;               // a good restore unlocks saving again
-      writeNow(); applyTheme(); refreshPartyOptions(); go("home");
-      alert(`Restored ${db.parties.length} contacts and ${live().length} entries.`);
-    }catch(err){ alert("That file could not be read as a Khata backup.\n\n"+err.message); }
-  };
+  r.onload = ()=> restoreFrom(r.result);
   r.readAsText(f); e.target.value="";
 };
+async function restoreFrom(text){
+  let obj;
+  try{ obj = JSON.parse(text); }
+  catch(err){ return alert("That file isn't a Khata backup — it could not be read."); }
+
+  let data = obj;
+  if(obj && obj.encrypted){                      // encrypted envelope: ask, decrypt
+    if(!cryptoReady()) return alert("Opening an encrypted backup needs a secure (https) connection.");
+    for(let tries=0; tries<3; tries++){
+      const pw = await askPassword({
+        title:"Encrypted backup",
+        msg: tries? "<b style='color:var(--pay)'>That password didn't work.</b> Try again."
+                  : `Saved ${obj.savedAt? esc(fmtDate(obj.savedAt)) : "earlier"}. `+
+                    "Enter the password used when this backup was made.",
+        confirm:false, action:"Unlock and restore"});
+      if(!pw) return;                            // cancelled
+      try{ data = await decryptBackup(obj, pw); break; }
+      catch(err){ data = null; }                 // wrong password or damaged file
+    }
+    if(!data) return alert("Could not open that backup.\n\nThe password was wrong, "+
+      "or the file is damaged. There is no way to recover it without the correct password.");
+  }
+
+  if(!data || !Array.isArray(data.parties) || !Array.isArray(data.txns))
+    return alert("That file isn't a Khata backup.");
+  const n = data.txns.filter(t=>!t.deletedAt).length;
+  if(!confirm(`Restore ${data.parties.length} contacts and ${n} entries?\n\n`+
+              `This REPLACES everything currently in the app.`)) return;
+  db = Object.assign(blank(), data,
+    {settings:Object.assign(blank().settings, data.settings||{})});
+  storageOK = true;                 // a good restore unlocks saving again
+  writeNow(); applyTheme(); refreshPartyOptions(); go("home");
+  alert(`Restored ${db.parties.length} contacts and ${live().length} entries.`);
+}
 $("#setSave").onclick = ()=>{
   db.settings.currency = $("#setCur").value.trim()||"PKR";
   db.settings.remindDays = +$("#setRemind").value;
@@ -1058,17 +1212,20 @@ $("#wipe").onclick = ()=>{
 };
 
 /* ====================== backup reminder ====================== */
+/* A quiet, dismissible banner on Home — never a popup, and never writes a
+   file on its own. Backing up is always something you choose to do. */
+let bannerHidden = false;
 function backupReminder(){
+  const el = $("#bkBanner"); if(!el) return;
   const rd = db.settings.remindDays;
-  if(!rd || !live().length) return;
   const lb = db.settings.lastBackup;
-  const due = !lb || (Date.now()-new Date(lb)) > rd*864e5;
+  const due = rd && live().length && (!lb || (Date.now()-new Date(lb)) > rd*864e5);
+  el.classList.toggle("hide", !(due && !bannerHidden && view==="home"));
   if(!due) return;
-  setTimeout(()=>{
-    if(confirm("It's time to back up your ledger.\n\nTap OK to save a backup file — then choose Google Drive to keep it safe."))
-      backupNow();
-    else { db.settings.lastBackup = db.settings.lastBackup || null; }
-  }, 1200);
+  const days = lb? Math.floor((Date.now()-new Date(lb))/864e5) : null;
+  $("#bkBannerTxt").textContent = lb
+    ? `Last backup was ${days} day${days===1?"":"s"} ago.`
+    : "You haven't backed up yet.";
 }
 
 /* ====================== boot ====================== */
