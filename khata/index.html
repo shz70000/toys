@@ -58,8 +58,12 @@ h2{font-size:1rem;margin:0 0 10px}
 .empty .big{font-size:2.2rem;display:block;margin-bottom:8px}
 
 /* search */
-.search{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:10px;
-  background:var(--card);margin-bottom:12px}
+.searchrow{display:flex;gap:8px;margin-bottom:12px}
+.search{flex:1;min-width:0;padding:11px 13px;border:1px solid var(--border);border-radius:10px;
+  background:var(--card)}
+.addbtn{flex:0 0 auto;padding:11px 14px;border-radius:10px;background:var(--accent);
+  color:#fff;font-weight:700;font-size:.88rem;white-space:nowrap}
+.addbtn:active{background:var(--accent-dk)}
 
 /* party row */
 .prow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);width:100%;text-align:left}
@@ -122,6 +126,21 @@ textarea{resize:vertical;min-height:60px}
 .chip{padding:7px 13px;border-radius:999px;border:1px solid var(--border);
   background:var(--bg);font-size:.82rem}
 .chip.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+
+/* backup banner */
+.banner{display:flex;align-items:center;gap:10px;justify-content:space-between;
+  background:var(--card);border:1px solid var(--border);border-left:4px solid #f59e0b;
+  border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.86rem}
+.banner .bactions{display:flex;gap:6px;flex:0 0 auto}
+.banner button{padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;
+  font-weight:600;font-size:.82rem}
+.banner button#bkBannerX{background:transparent;color:var(--muted);font-size:1rem;padding:6px 8px}
+
+/* storage meter */
+.meter{height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin:8px 0 6px}
+.meter span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.meter.warn span{background:#f59e0b}
+.meter.full span{background:var(--pay)}
 
 .totrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--border)}
 .totrow:last-child{border-bottom:none;font-weight:700;font-size:1.05rem;padding-top:11px}
@@ -194,7 +213,17 @@ body.locked #lock{display:flex}
 <main>
   <!-- HOME -->
   <section id="v-home">
-    <input class="search" id="pSearch" placeholder="🔍 Search name or phone…">
+    <div class="banner hide" id="bkBanner">
+      <span>🛡️ <b id="bkBannerTxt"></b></span>
+      <span class="bactions">
+        <button id="bkBannerGo">Back up</button>
+        <button id="bkBannerX" aria-label="Dismiss">✕</button>
+      </span>
+    </div>
+    <div class="searchrow">
+      <input class="search" id="pSearch" placeholder="🔍 Search name or phone…">
+      <button class="addbtn" id="addParty">＋ Contact</button>
+    </div>
     <div class="card" id="partyList"></div>
   </section>
 
@@ -253,12 +282,15 @@ body.locked #lock{display:flex}
     <div class="card pad">
       <h2>Backup &amp; restore</h2>
       <p class="muted" id="lastBk"></p>
-      <button class="btn" id="bkNow">⬇️ Backup now (save to Drive)</button>
+      <button class="btn" id="bkNow">🔐 Backup now (encrypted)</button>
       <button class="btn sec" id="bkRestore">⬆️ Restore from backup file</button>
       <input type="file" id="bkFile" accept=".json,application/json" class="hide">
-      <p class="muted" style="margin-top:12px">Tip: after tapping Backup, choose
-      <b>Google Drive</b> in the share/save menu. Turn on Drive's own “Available
-      offline” so it syncs automatically.</p>
+      <p class="muted" style="margin-top:12px">Backups only happen when you tap
+      the button — nothing is ever saved automatically. The file is locked with
+      <b>AES-256</b> using a password you choose, so it is safe to keep in Google
+      Drive or email. Restore it on any phone with the same password.</p>
+      <p class="muted"><b>⚠️ Lose the password and the backup is gone for good</b> —
+      there is no recovery, by design.</p>
     </div>
     <div class="card pad">
       <h2>Preferences</h2>
@@ -288,7 +320,9 @@ body.locked #lock{display:flex}
     </div>
     <div class="card pad">
       <h2>Data</h2>
-      <p class="muted"><span id="statLine"></span></p>
+      <p class="muted" id="statLine"></p>
+      <div class="meter" id="meter"><span style="width:0"></span></div>
+      <p class="muted" id="spaceLine"></p>
       <button class="btn sec" id="exCsv">⬇️ Export all as CSV</button>
       <button class="btn danger" id="wipe">🗑️ Erase all data</button>
     </div>
@@ -422,6 +456,21 @@ function newSalt(){
 }
 
 let lockMode="verify", lkBuf="", lkNewPin="", lkTries=0, unlockedAt=0;
+let lockUntil=0, cdTimer=null;
+/* while cooling down, the keypad is disabled and shows the remaining time */
+function countdown(){
+  clearTimeout(cdTimer);
+  const left = Math.ceil((lockUntil - Date.now())/1000);
+  const pad = $("#lkPad");
+  if(left > 0){
+    pad.style.opacity = ".35"; pad.style.pointerEvents = "none";
+    lkSay(`Too many wrong attempts. Wait ${left}s.`, true);
+    cdTimer = setTimeout(countdown, 500);
+  }else{
+    pad.style.opacity = ""; pad.style.pointerEvents = "";
+    lkSay("You can try again now.", false);
+  }
+}
 function setLocked(on){
   document.body.classList.toggle("locked", on);
   if(on){ lkBuf=""; drawDots(); } else { unlockedAt = Date.now(); }
@@ -467,14 +516,24 @@ async function lkSubmit(){
   // verify
   const h = await pinHash(pin, db.settings.pinSalt);
   if(h === db.settings.pinHash){
-    lkTries=0; setLocked(false); render(); backupReminder(); return;
+    lkTries=0; db.settings.pinFails=0; save();
+    setLocked(false); render(); return;
   }
+  /* Throttle guessing: a 4-digit PIN is only 10,000 combinations, so make
+     repeated attempts progressively expensive. */
   lkTries++; lkBuf=""; drawDots();
+  db.settings.pinFails = (db.settings.pinFails||0) + 1; save();
+  if(db.settings.pinFails >= 5){
+    const wait = Math.min(300, 5 * Math.pow(2, db.settings.pinFails - 5)); // 5s,10s,20s… max 5min
+    lockUntil = Date.now() + wait*1000;
+    return countdown();
+  }
   lkSay(lkTries>=3 ? "Still wrong. Tap “Forgot?” if you're stuck."
                    : "Wrong PIN, try again.", true);
 }
 $("#lkPad").addEventListener("click", async e=>{
   const b=e.target.closest("button"); if(!b) return;
+  if(Date.now() < lockUntil) return;          // cooling down after wrong guesses
   const k=b.dataset.k;
   if(k==="del"){ lkBuf=lkBuf.slice(0,-1); drawDots(); return; }
   if(k==="forgot"){
@@ -534,6 +593,7 @@ function render(){
   if(view==="home")  renderHome();
   if(view==="party") renderParty();
   if(view==="set")   renderSettings();
+  backupReminder();
 }
 function renderSummary(){
   let get=0,pay=0;
@@ -553,7 +613,7 @@ function renderHome(){
   if(!list.length){
     $("#partyList").innerHTML = `<div class="empty"><span class="big">👥</span>
       ${db.parties.length? "No match for that search." :
-        "No contacts yet.<br>Tap ＋ to add your first one."}</div>`;
+        "No contacts yet.<br>Tap <b>＋ Contact</b> above to add your first one."}</div>`;
     return;
   }
   $("#partyList").innerHTML = list.map(p=>{
@@ -682,7 +742,7 @@ function openSheet(html){
 }
 const closeSheet = ()=> $("#modalHost").innerHTML="";
 
-function partySheet(id){
+function partySheet(id, onSaved){
   const p = id? party(id) : null;
   openSheet(`<h3>${p?"Edit contact":"New contact"}</h3>
     <label>Name *</label><input id="npName" value="${esc(p?p.name:"")}" placeholder="e.g. Ahmed Traders">
@@ -696,11 +756,16 @@ function partySheet(id){
   $("#npSave").onclick = ()=>{
     const name=$("#npName").value.trim();
     if(!name) return alert("Please enter a name.");
+    let newId = null;
     if(p){ Object.assign(p,{name,phone:$("#npPhone").value.trim(),note:$("#npNote").value.trim()}); }
-    else { db.parties.push({id:uid(),name,phone:$("#npPhone").value.trim(),
-             note:$("#npNote").value.trim(),createdAt:new Date().toISOString()}); }
-    save(); closeSheet(); render();
+    else {
+      newId = uid();
+      db.parties.push({id:newId,name,phone:$("#npPhone").value.trim(),
+             note:$("#npNote").value.trim(),createdAt:new Date().toISOString()});
+    }
+    save(); closeSheet(); refreshPartyOptions(); render();
     if(view==="party") $("#pageTitle").textContent = pname(curParty);
+    if(onSaved) onSaved(newId);
   };
   if(p) $("#npDel").onclick = ()=>{
     const n = ofParty(p.id).length;
@@ -711,14 +776,16 @@ function partySheet(id){
   };
 }
 
-function txnSheet(id){
+function txnSheet(id, preferParty, draft){
   const t = id? db.txns.find(x=>x.id===id) : null;
   if(!db.parties.length){
     alert("Add a contact first, then record entries against them.");
-    return partySheet(null);
+    return partySheet(null, nid=> nid && txnSheet(null, nid, draft));
   }
-  const dir = t? t.dir : "out";
-  const dt  = t? new Date(t.date) : new Date();
+  const d0  = t || draft || {};              // values to prefill from
+  const sel = t? t.partyId : (preferParty || (view==="party"? curParty : null));
+  const dir = d0.dir || "out";
+  const dt  = d0.date? new Date(d0.date) : new Date();
   const localDT = new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
   openSheet(`<h3>${t?"Edit entry":"New entry"}</h3>
     <label>Type *</label>
@@ -728,24 +795,24 @@ function txnSheet(id){
     </div>
     <label>Contact *</label>
     <select id="tParty">${db.parties.map(p=>
-      `<option value="${esc(p.id)}" ${t&&t.partyId===p.id?"selected":
-        (!t&&curParty===p.id?"selected":"")}>${esc(p.name)}</option>`).join("")}</select>
+      `<option value="${esc(p.id)}" ${sel===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}
+      <option value="__new">＋ Add a new contact…</option></select>
     <label>Amount *</label>
     <input id="tAmt" type="number" inputmode="decimal" step="0.01" min="0"
-      value="${t?esc(t.amount):""}" placeholder="0.00">
+      value="${d0.amount!=null?esc(d0.amount):""}" placeholder="0.00">
     <label>Category</label>
     <div class="chips" id="tCat">${CATS.map(c=>
-      `<button class="chip ${((t?t.cat:"Loan")===c)?"on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      `<button class="chip ${((d0.cat||"Loan")===c)?"on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>
     <label>Date &amp; time</label>
     <input id="tDate" type="datetime-local" value="${localDT}">
     <label>Due date (optional — for loans you expect back)</label>
-    <input id="tDue" type="date" value="${t&&t.dueDate?esc(t.dueDate):""}">
-    <label>Note</label><textarea id="tNote" placeholder="what was it for?">${esc(t?t.note||"":"")}</textarea>
+    <input id="tDue" type="date" value="${d0.dueDate?esc(d0.dueDate):""}">
+    <label>Note</label><textarea id="tNote" placeholder="what was it for?">${esc(d0.note||"")}</textarea>
     <button class="btn" id="tSave">${t?"Save changes":"Add entry"}</button>
     ${t?`<button class="btn danger" id="tDel">Delete entry</button>`:""}
     <button class="btn sec" id="tCancel">Cancel</button>`);
 
-  let d=dir, cat = t? t.cat : "Loan";
+  let d=dir, cat = d0.cat || "Loan";
   $("#tDir").querySelectorAll("button").forEach(b=> b.onclick=()=>{
     d=b.dataset.d;
     $("#tDir").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.d===d));
@@ -757,7 +824,18 @@ function txnSheet(id){
   $("#tCancel").onclick = closeSheet;
   if(!t) $("#tAmt").focus();
 
+  // "＋ Add a new contact…" — keep whatever is typed, add the contact, come back
+  $("#tParty").onchange = e=>{
+    if(e.target.value !== "__new") return;
+    const keep = {dir:d, cat, amount:$("#tAmt").value, note:$("#tNote").value,
+                  dueDate:$("#tDue").value||null,
+                  date:$("#tDate").value? new Date($("#tDate").value).toISOString() : null};
+    closeSheet();
+    partySheet(null, nid=> txnSheet(id, nid || sel, keep));
+  };
+
   $("#tSave").onclick = ()=>{
+    if($("#tParty").value === "__new") return alert("Please choose a contact.");
     const amt = parseFloat($("#tAmt").value);
     if(!(amt>0)) return alert("Please enter an amount greater than zero.");
     const raw = $("#tDate").value;
@@ -774,12 +852,10 @@ function txnSheet(id){
     save(); closeSheet(); render();
   };
 }
-$("#fab").onclick = ()=> view==="home" && !curParty ? txnSheet(null) : txnSheet(null);
-
-/* long-press FAB alternative: add contact button in empty state */
-document.addEventListener("click", e=>{
-  if(e.target.id==="addFirstParty") partySheet(null);
-});
+/* ＋ floating button always means "new entry"; contacts are added from the
+   "＋ Contact" button on Home, or from inside the entry sheet. */
+$("#fab").onclick   = ()=> txnSheet(null);
+$("#addParty").onclick = ()=> partySheet(null);
 
 /* ====================== reports ====================== */
 let repRows=[], repRange={from:"",to:""};
@@ -873,12 +949,20 @@ function tableHTML(rows,{running=false, showParty=true}={}){
       <td class="num">${esc(money(out))}</td><td class="num">${esc(money(inn))}</td>
       ${running?`<td class="num">${esc(money(out-inn))}</td>`:""}</tr></tfoot></table>`;
 }
+const inPreview = ()=>{ try{ return window.self !== window.top; }catch(e){ return true; } };
 function doPrint(title,sub,meta,inner){
   $("#printArea").innerHTML =
     `<div class="pr-head"><h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
      <div class="pr-sign"><div>Receiver's signature</div><div>Authorised signature</div></div>`;
-  window.print();
+  // Previews run the page inside a frame that blocks printing, so say so
+  // rather than appearing to do nothing.
+  if(inPreview())
+    return alert("Printing is blocked inside this preview window.\n\n"+
+      "Open the app from its own web address (or the installed app) and the "+
+      "Print / Save-as-PDF dialog will appear normally.");
+  try{ window.print(); }
+  catch(e){ alert("This browser would not open the print dialog.\n\n"+e.message); }
 }
 function printStatement(id){
   const p=party(id); if(!p) return;
@@ -925,12 +1009,21 @@ async function saveFile(text, name, mime){
       if(code === "too_large"){
         alert("This file is too big to save here (over 16 MB)."); return false;
       }
-      // extension not allowed here, or some other host problem — try the link,
-      // and if that is also blocked the message below explains why.
+      if(code === "extension_not_enabled" || code === "rejected_extension"){
+        // e.g. .csv is not permitted in a preview — offer the same text as .txt
+        const ext = name.split(".").pop();
+        try{
+          await dl.save({filename:name.replace(/\.[^.]+$/,"")+".txt", data:text});
+          alert("Saved as a .txt file — this preview does not allow ."+ext+
+                " files.\n\nRename it to ."+ext+" and it opens normally.");
+          return true;
+        }catch(e2){ /* fall through */ }
+      }
+      // some other host problem — try the ordinary link, then explain
       linkSave(text,name,mime);
-      alert("This preview could not save “"+name+"”.\n\n"+
-            "Backups work normally once the app is installed from your own "+
-            "GitHub Pages link.");
+      alert("This preview window could not save “"+name+"”.\n\n"+
+            "Open the app from its own web address (or the installed app) and "+
+            "saving works normally.");
       return false;
     }
   }
@@ -948,11 +1041,114 @@ function downloadCSV(rows,base){
   return saveFile("﻿"+[head.map(q).join(","),...body].join("\r\n"),
     `${base}-${new Date().toISOString().slice(0,10)}.csv`, "text/csv;charset=utf-8");
 }
+/* ====================== encrypted backup ======================
+   The file is real AES-256-GCM, with the key stretched from your password by
+   PBKDF2 (250k rounds). Without the password the contents cannot be read —
+   which also means a lost password means a lost backup. Nothing is ever
+   written to the device unless you tap Backup yourself. */
+const KDF_ITER = 250000;
+const b64 = {
+  enc(buf){                                   // chunked: big ledgers blow the stack otherwise
+    const a = new Uint8Array(buf); let s = "";
+    for(let i=0;i<a.length;i+=0x8000) s += String.fromCharCode.apply(null, a.subarray(i,i+0x8000));
+    return btoa(s);
+  },
+  dec: s => Uint8Array.from(atob(s), c=>c.charCodeAt(0))
+};
+function cryptoReady(){ return !!(window.crypto && crypto.subtle); }
+async function deriveKey(pw, salt){
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw),
+    "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2", salt, iterations:KDF_ITER, hash:"SHA-256"},
+    base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function encryptBackup(pw){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveKey(pw, salt);
+  const ct   = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key,
+    new TextEncoder().encode(JSON.stringify(db)));
+  return JSON.stringify({
+    format:"khata-backup", version:1, encrypted:true,
+    cipher:"AES-256-GCM", kdf:"PBKDF2-SHA256", iterations:KDF_ITER,
+    salt:b64.enc(salt), iv:b64.enc(iv), data:b64.enc(ct),
+    savedAt:new Date().toISOString(),
+    note:"Encrypted Khata backup. Restore it from the Khata app with your password."
+  }, null, 2);
+}
+async function decryptBackup(obj, pw){
+  const key = await deriveKey(pw, b64.dec(obj.salt));
+  const pt  = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64.dec(obj.iv)},
+    key, b64.dec(obj.data));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* Ask for the PIN again before something destructive. Resolves true when the
+   PIN matches (or when no PIN is set), false if cancelled. */
+function askPinConfirm(msg){
+  return new Promise(resolve=>{
+    if(!hasPin()) return resolve(true);
+    openSheet(`<h3>Confirm with your PIN</h3>
+      <p class="muted">${msg}</p>
+      <label>PIN</label>
+      <input id="cpin" type="password" inputmode="numeric" maxlength="4" autocomplete="off">
+      <p class="muted" id="cpErr" style="color:var(--pay);min-height:1.1em"></p>
+      <button class="btn danger" id="cpGo">Confirm</button>
+      <button class="btn sec" id="cpCancel">Cancel</button>`);
+    $("#cpin").focus();
+    $("#cpCancel").onclick = ()=>{ closeSheet(); resolve(false); };
+    $("#cpGo").onclick = async ()=>{
+      const h = await pinHash($("#cpin").value, db.settings.pinSalt);
+      if(h === db.settings.pinHash){ closeSheet(); resolve(true); }
+      else { $("#cpErr").textContent = "Wrong PIN."; $("#cpin").value=""; }
+    };
+  });
+}
+
+/* password sheet — resolves to the password, or null if cancelled */
+function askPassword({title, msg, confirm:needConfirm, action}){
+  return new Promise(resolve=>{
+    openSheet(`<h3>${esc(title)}</h3>
+      <p class="muted">${msg}</p>
+      <label>Password</label>
+      <input id="pw1" type="password" autocomplete="new-password" placeholder="at least 6 characters">
+      ${needConfirm?`<label>Repeat password</label>
+      <input id="pw2" type="password" autocomplete="new-password">`:""}
+      <p class="muted" id="pwErr" style="color:var(--pay);min-height:1.1em"></p>
+      <button class="btn" id="pwGo">${esc(action)}</button>
+      <button class="btn sec" id="pwCancel">Cancel</button>`);
+    const done = v =>{ closeSheet(); resolve(v); };
+    $("#pwCancel").onclick = ()=> done(null);
+    $("#pw1").focus();
+    $("#pwGo").onclick = ()=>{
+      const a = $("#pw1").value;
+      if(a.length < 6) return $("#pwErr").textContent = "Use at least 6 characters.";
+      if(needConfirm && a !== $("#pw2").value)
+        return $("#pwErr").textContent = "The two passwords don't match.";
+      done(a);
+    };
+    $("#pw1").onkeydown = e=>{ if(e.key==="Enter" && !needConfirm) $("#pwGo").click(); };
+  });
+}
+
 async function backupNow(){
-  const ok = await saveFile(JSON.stringify(db,null,2),
-    `khata-backup-${new Date().toISOString().slice(0,10)}.json`, "application/json");
-  if(!ok) return;                       // don't claim a backup that never saved
+  if(!cryptoReady()) return alert("Encrypted backup needs a secure (https) connection.");
+  const pw = await askPassword({
+    title:"Protect this backup",
+    msg:"The file is encrypted with this password. Keep it safe — "+
+        "<b>without it the backup cannot be opened by anyone, including you</b>.",
+    confirm:true, action:"Encrypt and save"});
+  if(!pw) return;                                   // cancelled — write nothing
+  let text;
+  try{ text = await encryptBackup(pw); }
+  catch(e){ return alert("Could not encrypt the backup.\n\n"+e.message); }
+  const name = `khata-backup-${new Date().toISOString().slice(0,10)}.json`;
+  const ok = await saveFile(text, name, "application/json");
+  if(!ok) return;                                   // don't claim a backup that never saved
   db.settings.lastBackup = new Date().toISOString(); save(); renderSettings();
+  alert("Backup saved and encrypted.\n\nMove it to Google Drive to keep it safe, "+
+        "and remember the password — it is the only way back in.");
 }
 function renderSettings(){
   const lb = db.settings.lastBackup;
@@ -969,31 +1165,74 @@ function renderSettings(){
     : "🔓 No PIN. Anyone opening the app can see your ledger.";
   $("#pinBtn").textContent = hasPin()? "Change PIN" : "Set a PIN";
   $("#pinOff").classList.toggle("hide", !hasPin());
+  /* Browsers cap this kind of storage at about 5 MB per site. Show how much
+     is left in entries, so the ceiling is never a surprise. */
+  const LIMIT = 5 * 1024 * 1024, PER_ENTRY = 220;
+  const used = JSON.stringify(db).length;
+  const pct  = Math.min(100, used / LIMIT * 100);
+  const left = Math.max(0, Math.floor((LIMIT - used) / PER_ENTRY));
   $("#statLine").textContent =
-    `${db.parties.length} contacts · ${live().length} entries · about ${
-      Math.round(JSON.stringify(db).length/1024)} KB used`;
+    `${db.parties.length} contacts · ${live().length} entries · ` +
+    `${(used/1024).toFixed(0)} KB of about 5 MB`;
+  const m = $("#meter");
+  m.className = "meter" + (pct>=90 ? " full" : pct>=75 ? " warn" : "");
+  m.firstElementChild.style.width = Math.max(pct,1).toFixed(1)+"%";
+  $("#spaceLine").innerHTML = pct>=90
+    ? `<b style="color:var(--pay)">Almost full (${pct.toFixed(0)}%).</b> Back up now, then
+       delete old entries or start a fresh year to free room.`
+    : pct>=75
+    ? `<b>${pct.toFixed(0)}% used.</b> Room for roughly ${left.toLocaleString()} more entries.`
+    : `${pct.toFixed(1)}% used — room for roughly ${left.toLocaleString()} more entries.`;
 }
 $("#bkNow").onclick     = backupNow;
-$("#exCsv").onclick     = ()=> downloadCSV(live(),"khata-all");
+$("#bkBannerGo").onclick = backupNow;
+$("#bkBannerX").onclick  = ()=>{ bannerHidden = true; backupReminder(); };
+$("#exCsv").onclick     = ()=>{
+  if(!confirm("The CSV is for opening in Excel or Sheets, so it is NOT encrypted —\n"+
+     "anyone who opens the file can read it.\n\nUse Backup for a protected copy.\n\nExport anyway?")) return;
+  downloadCSV(live(),"khata-all");
+};
 $("#bkRestore").onclick = ()=> $("#bkFile").click();
 $("#bkFile").onchange = e=>{
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader();
-  r.onload = ()=>{
-    try{
-      const d=JSON.parse(r.result);
-      if(!d || !Array.isArray(d.parties) || !Array.isArray(d.txns))
-        throw new Error("not a Khata backup");
-      if(!confirm(`Restore ${d.parties.length} contacts and ${d.txns.length} entries?\n\nThis REPLACES everything currently in the app.`)) return;
-      db = Object.assign(blank(), d,
-        {settings:Object.assign(blank().settings, d.settings||{})});
-      storageOK = true;               // a good restore unlocks saving again
-      writeNow(); applyTheme(); refreshPartyOptions(); go("home");
-      alert(`Restored ${db.parties.length} contacts and ${live().length} entries.`);
-    }catch(err){ alert("That file could not be read as a Khata backup.\n\n"+err.message); }
-  };
+  r.onload = ()=> restoreFrom(r.result);
   r.readAsText(f); e.target.value="";
 };
+async function restoreFrom(text){
+  let obj;
+  try{ obj = JSON.parse(text); }
+  catch(err){ return alert("That file isn't a Khata backup — it could not be read."); }
+
+  let data = obj;
+  if(obj && obj.encrypted){                      // encrypted envelope: ask, decrypt
+    if(!cryptoReady()) return alert("Opening an encrypted backup needs a secure (https) connection.");
+    for(let tries=0; tries<3; tries++){
+      const pw = await askPassword({
+        title:"Encrypted backup",
+        msg: tries? "<b style='color:var(--pay)'>That password didn't work.</b> Try again."
+                  : `Saved ${obj.savedAt? esc(fmtDate(obj.savedAt)) : "earlier"}. `+
+                    "Enter the password used when this backup was made.",
+        confirm:false, action:"Unlock and restore"});
+      if(!pw) return;                            // cancelled
+      try{ data = await decryptBackup(obj, pw); break; }
+      catch(err){ data = null; }                 // wrong password or damaged file
+    }
+    if(!data) return alert("Could not open that backup.\n\nThe password was wrong, "+
+      "or the file is damaged. There is no way to recover it without the correct password.");
+  }
+
+  if(!data || !Array.isArray(data.parties) || !Array.isArray(data.txns))
+    return alert("That file isn't a Khata backup.");
+  const n = data.txns.filter(t=>!t.deletedAt).length;
+  if(!confirm(`Restore ${data.parties.length} contacts and ${n} entries?\n\n`+
+              `This REPLACES everything currently in the app.`)) return;
+  db = Object.assign(blank(), data,
+    {settings:Object.assign(blank().settings, data.settings||{})});
+  storageOK = true;                 // a good restore unlocks saving again
+  writeNow(); applyTheme(); refreshPartyOptions(); go("home");
+  alert(`Restored ${db.parties.length} contacts and ${live().length} entries.`);
+}
 $("#setSave").onclick = ()=>{
   db.settings.currency = $("#setCur").value.trim()||"PKR";
   db.settings.remindDays = +$("#setRemind").value;
@@ -1005,32 +1244,79 @@ $("#pinOff").onclick = ()=>{
   if(!confirm("Turn off the PIN? The app will open without asking.")) return;
   db.settings.pinHash=null; db.settings.pinSalt=null; save(); renderSettings();
 };
+/* Erasing is the one irreversible action in the app, so it asks properly:
+   an in-app sheet (never a native confirm, which some browsers suppress),
+   a backup offer, a typed confirmation, and the PIN if one is set. */
 $("#wipe").onclick = ()=>{
-  if(!confirm("Erase ALL contacts and entries? This cannot be undone.")) return;
-  if(!confirm("Really erase everything? Make sure you have a backup first.")) return;
-  db = blank(); storageOK = true; writeNow(); refreshPartyOptions(); go("home");
+  const nP = db.parties.length, nT = live().length;
+  if(!nP && !nT) return alert("There is nothing to erase — the ledger is already empty.");
+  openSheet(`<h3 style="color:var(--pay)">⚠️ Erase everything?</h3>
+    <p>This permanently deletes <b>${nP} contact${nP===1?"":"s"}</b> and
+       <b>${nT} entr${nT===1?"y":"ies"}</b> from this device.</p>
+    <p style="color:var(--pay)"><b>You will NOT be able to get this data back.</b>
+       There is no undo and no copy kept anywhere — unless you have a backup file.</p>
+    <button class="btn" id="erBk">🔐 Back up first (recommended)</button>
+    <label>Type <b>ERASE</b> below to confirm</label>
+    <input id="erTxt" autocomplete="off" autocapitalize="characters" placeholder="ERASE">
+    <button class="btn danger" id="erGo">Erase everything</button>
+    <button class="btn sec" id="erCancel">Cancel — keep my data</button>`);
+  $("#erCancel").onclick = closeSheet;
+  $("#erBk").onclick = ()=>{ closeSheet(); backupNow(); };
+  $("#erGo").onclick = async ()=>{
+    if($("#erTxt").value.trim().toUpperCase() !== "ERASE")
+      return alert('Type ERASE in the box to confirm, or tap Cancel.');
+    closeSheet();
+    if(!await askPinConfirm("Enter your PIN to erase everything.")) return;
+    db = blank(); storageOK = true; bannerHidden = false;
+    writeNow(); refreshPartyOptions(); go("home");
+    alert("All data erased.");
+  };
 };
 
 /* ====================== backup reminder ====================== */
+/* A quiet, dismissible banner on Home — never a popup, and never writes a
+   file on its own. Backing up is always something you choose to do. */
+let bannerHidden = false;
 function backupReminder(){
+  const el = $("#bkBanner"); if(!el) return;
   const rd = db.settings.remindDays;
-  if(!rd || !live().length) return;
   const lb = db.settings.lastBackup;
-  const due = !lb || (Date.now()-new Date(lb)) > rd*864e5;
+  const due = rd && live().length && (!lb || (Date.now()-new Date(lb)) > rd*864e5);
+  el.classList.toggle("hide", !(due && !bannerHidden && view==="home"));
   if(!due) return;
-  setTimeout(()=>{
-    if(confirm("It's time to back up your ledger.\n\nTap OK to save a backup file — then choose Google Drive to keep it safe."))
-      backupNow();
-    else { db.settings.lastBackup = db.settings.lastBackup || null; }
-  }, 1200);
+  const days = lb? Math.floor((Date.now()-new Date(lb))/864e5) : null;
+  $("#bkBannerTxt").textContent = lb
+    ? `Last backup was ${days} day${days===1?"":"s"} ago.`
+    : "You haven't backed up yet.";
 }
 
 /* ====================== boot ====================== */
 applyTheme(); initFilters(); refreshPartyOptions();
 $("#pSearch").value="";
+/* First run: offer a PIN straight away, since this holds money records. */
+function welcomeSheet(){
+  openSheet(`<h3>Welcome to Khata 👋</h3>
+    <p class="muted">This is your private ledger for money given and received.
+    Everything stays on this phone — nothing is uploaded anywhere.</p>
+    <p><b>For your safety and privacy, set a PIN</b> so nobody who picks up your
+    phone can open your accounts.</p>
+    <button class="btn" id="wPin">🔒 Set up a PIN</button>
+    <button class="btn sec" id="wSkip">Not now</button>
+    <p class="muted" style="margin-top:12px">You can add or change it any time in
+    <b>Settings → App lock</b>. Remember to back up regularly too — an encrypted
+    backup is the only way to move your data to another phone.</p>`);
+  const seen = ()=>{ db.settings.seenWelcome = true; save(); };
+  $("#wSkip").onclick = ()=>{ seen(); closeSheet(); };
+  $("#wPin").onclick  = ()=>{ seen(); closeSheet(); startLock("set"); };
+}
+
 go("home");
 if(hasPin()) startLock("verify");
-else { unlockedAt = Date.now(); backupReminder(); }
+else {
+  unlockedAt = Date.now();
+  backupReminder();
+  if(!db.settings.seenWelcome) setTimeout(welcomeSheet, 500);
+}
 // Flush any debounced save when the app is closed or backgrounded.
 // visibilitychange is the reliable one on mobile; beforeunload often never fires.
 function flush(){ clearTimeout(saveTimer); writeNow(); }

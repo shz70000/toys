@@ -38,19 +38,25 @@ The category (Loan, Repayment, Deposit, Receipt, Advance, Expense, Other) is
 a label for filtering and reports — it never changes the maths. This keeps
 the arithmetic impossible to get wrong.
 
-## Backup
+## Backup — encrypted, and only when you ask
 
-Settings → **Backup now** saves a `.json` file. On Android choose **Google
-Drive** in the save/share sheet. Restore the same file on any device from
-Settings → Restore.
+Settings → **Backup now**. You choose a password; the file is encrypted with
+**AES-256-GCM**, the key stretched from your password by **PBKDF2-SHA256**
+(250,000 rounds). The saved `.json` holds only ciphertext, so it is safe to
+keep in Google Drive, email it, or store on a shared PC.
 
-The app nags you when a backup is overdue (daily by default — change it in
-Settings). **Fully automatic daily upload to Drive is not possible from a
-web app** — see "Limitations" below.
+**Nothing is ever written automatically.** A file is only created when you tap
+the button. If a backup is overdue you get a small dismissible banner on Home —
+never a popup, never a silent download.
 
-Safety: if saved data is ever unreadable, the app refuses to overwrite it,
-parks a copy under a `khata_v1_damaged_…` key, and tells you — so a glitch
-can never silently wipe your ledger.
+To restore on any phone: Settings → **Restore from backup file** → pick the
+file → enter the password. Wrong passwords simply re-prompt.
+
+> **⚠️ Lose the password and the backup is unreadable — permanently.** That is
+> what encryption means; there is no recovery route, for you or anyone else.
+
+CSV export is separate and deliberately **not** encrypted, because spreadsheets
+have to be able to open it. The app warns you before writing one.
 
 ## App lock (PIN)
 
@@ -81,19 +87,39 @@ Party screen → **Print / PDF**, or Reports → **Print / PDF**.
 In the print dialog choose **Save as PDF** for a PDF, or a printer for paper.
 Statements include a running balance, totals and signature lines.
 
+## Erasing data
+
+Settings → **Erase all data** is the only irreversible action. It asks in an
+in-app sheet (never a browser popup, which some contexts suppress), offers to
+back up first, requires you to type **ERASE**, and then asks for your PIN if one
+is set. Nothing is deleted until all of that passes.
+
+## Running inside a preview window
+
+If the app is opened inside a preview frame rather than at its own web address,
+the browser blocks printing and restricts file saving. The app now says so
+instead of appearing to do nothing. Install it from your own Pages URL and
+Print/PDF, CSV export and backups all behave normally.
+
 ## Limitations (honest list)
 
 - **No automatic background Drive upload.** Browsers don't let a web app run
-  daily background jobs reliably. You get a reminder + one tap instead. True
+  daily background jobs reliably, and writing files without asking would be
+  wrong anyway. You get a dismissible banner and back up with one tap. True
   unattended backup needs a native Android app.
 - **Data is per-browser.** Installing on a second phone starts empty — move
   data with a backup file.
 - **Clearing browser site data erases the ledger.** Keep backups.
-- The PIN locks the screen but does not encrypt the stored data.
+- The PIN locks the screen but does not encrypt the data held on the device;
+  backup files, however, are properly encrypted.
+- After 5 wrong PIN attempts the keypad locks for 5s, doubling each further
+  failure up to 5 minutes.
+- Statements printed to PDF are not password protected — the browser's own
+  Save-as-PDF has no way to set one.
 - No fingerprint unlock, receipt photos, or interest calculation yet.
 
 ## Changing things
 
 Colours live at the top of `index.html` in `:root`. Categories are the
 `CATS` array near the top of the script. After changing any file, bump
-`CACHE = "khata-v1"` in `sw.js` so phones fetch the new version.
+`CACHE` in `sw.js` so phones fetch the new version.
