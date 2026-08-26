@@ -97,23 +97,32 @@ Statements include a running balance, totals and signature lines.
 
 ## Your letterhead
 
-Settings → **Your name on statements** sets the header and footer of every
-printed statement and report. Deliberately minimal — four fields:
+Settings → **Your details on statements**. These belong to whoever is using
+the app and start empty, so each person fills in their own:
 
 | Field | Where it prints |
 |---|---|
-| Logo | Top, centred, above the name |
-| Business / brand name | Heading, and the `© <year>` footer |
-| Email | One line under the name |
-| Signature name (optional) | Under the signature line, with "for <brand>" |
+| Logo | Top, centred |
+| Your name or business name | Heading, and "for <name>" under the signature |
+| Phone · Email | One line beneath, blanks skipped |
+| Signature name (optional) | Under the signature line |
 
-Anything left blank is left off. Clearing the brand removes the heading and the
-footer entirely.
+Anything left blank is left off — a statement prints fine with none of it set.
 
 Logos are resized to fit 360×140 and stored as PNG (usually a few KB), so a
 phone photo will not eat into the ~5 MB storage budget. Anything still over
 300 KB is rejected with a message rather than saved. The logo travels inside
 your encrypted backup, so restoring on a new phone brings it back.
+
+## Who owns what
+
+Two separate things, deliberately kept apart:
+
+- **The app** is © MindMeld Nexus. That is fixed in `APP_NAME` / `APP_OWNER`
+  near the top of the script, shown in Settings → About, and printed as a small
+  "Khata by MindMeld Nexus" credit at the foot of each statement.
+- **The ledger and the letterhead** belong to the person using the app. No
+  personal details are baked into the source.
 
 ## Erasing data
 

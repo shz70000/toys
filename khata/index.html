@@ -315,13 +315,17 @@ body.locked #lock{display:flex}
       <button class="btn" id="setSave">Save preferences</button>
     </div>
     <div class="card pad">
-      <h2>Your name on statements</h2>
-      <label>Business / brand name</label>
-      <input id="setBrand" maxlength="60" placeholder="MindMeld Nexus">
+      <h2>Your details on statements</h2>
+      <p class="muted">Whatever you put here prints at the top of every
+      statement and report you give someone. All optional.</p>
+      <label>Your name or business name</label>
+      <input id="setBrand" maxlength="60" placeholder="e.g. Ahmed Traders">
+      <label>Phone</label>
+      <input id="setPhone" type="tel" maxlength="40" placeholder="e.g. 0300-1234567">
       <label>Email</label>
-      <input id="setEmail" type="email" maxlength="60" placeholder="you@example.com">
+      <input id="setEmail" type="email" maxlength="60" placeholder="e.g. you@example.com">
       <label>Signature name (optional)</label>
-      <input id="setSigner" maxlength="60" placeholder="e.g. Shazaib Dilawar">
+      <input id="setSigner" maxlength="60" placeholder="the name under the signature line">
 
       <label>Logo</label>
       <div class="btnrow">
@@ -388,13 +392,18 @@ body.locked #lock{display:flex}
 <script>
 "use strict";
 /* ====================== storage ====================== */
+/* Who owns the software. Fixed — not a user setting. Separate from the
+   letterhead below, which belongs to whoever is using the app. */
+const APP_NAME  = "Khata";
+const APP_OWNER = "MindMeld Nexus";
+const APP_VER   = "1.0";
+
 const KEY = "khata_v1";
 const CATS = ["Loan","Repayment","Deposit","Receipt","Advance","Expense","Other"];
 const blank = () => ({version:1,
   settings:{currency:"PKR",theme:"auto",remindDays:1,lastBackup:null,
             cc:"92", pinHash:null, pinSalt:null,
-            brand:"MindMeld Nexus", signatory:"",
-            email:"nawaztahir2k@gmail.com", logo:null},
+            brand:"", phone:"", email:"", signatory:"", logo:null},
   parties:[], txns:[]});
 
 /* If stored data can't be parsed we must NEVER overwrite it with an empty
@@ -1000,13 +1009,16 @@ const APP_TITLE = document.title;
 let titleTimer = null;
 function restoreTitle(){ clearTimeout(titleTimer); document.title = APP_TITLE; }
 function doPrint(title,sub,meta,inner,fileName){
+  /* The header belongs to whoever is using the app — their name, phone, email
+     and logo. The footer credit is the software's own, and is fixed. */
   const S = db.settings, t = k => String(S[k]||"").trim();
-  const brand = t("brand"), who = t("signatory"), year = new Date().getFullYear();
+  const brand = t("brand"), who = t("signatory");
+  const contact = ["phone","email"].map(t).filter(Boolean).join("  ·  ");
   $("#printArea").innerHTML =
     `<div class="pr-head">
        ${S.logo? `<img class="pr-logo" src="${esc(S.logo)}" alt="">`:""}
        ${brand? `<div class="pr-brand">${esc(brand)}</div>`:""}
-       ${t("email")? `<div class="pr-contact">${esc(t("email"))}</div>`:""}
+       ${contact? `<div class="pr-contact">${esc(contact)}</div>`:""}
        <h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
      <div class="pr-sign">
@@ -1014,7 +1026,7 @@ function doPrint(title,sub,meta,inner,fileName){
        <div>${esc(who || "Authorised signature")}${
          brand? `<div class="pr-for">for ${esc(brand)}</div>`:""}</div>
      </div>
-     ${brand? `<div class="pr-foot">© ${year} ${esc(brand)}</div>`:""}`;
+     <div class="pr-foot">${esc(APP_NAME)} by ${esc(APP_OWNER)}</div>`;
   // Previews run the page inside a frame that blocks printing, so say so
   // rather than appearing to do nothing.
   if(inPreview())
@@ -1267,15 +1279,18 @@ function renderSettings(){
   $("#setCC").value = db.settings.cc||"";
   $("#setBrand").value  = db.settings.brand||"";
   $("#setSigner").value = db.settings.signatory||"";
+  $("#setPhone").value  = db.settings.phone||"";
   $("#setEmail").value  = db.settings.email||"";
   $("#logoPrev").innerHTML = db.settings.logo
     ? `<img src="${esc(db.settings.logo)}" alt="logo"
          style="max-height:56px;max-width:180px;border:1px solid var(--border);
                 border-radius:8px;padding:6px;background:#fff">`
     : `<span class="muted">No logo — the statement just shows your name.</span>`;
-  $("#aboutLine").innerHTML = "Khata — personal ledger<br>© " +
-    new Date().getFullYear() + " " + esc(db.settings.brand||"MindMeld Nexus") +
-    ". All rights reserved.";
+  $("#aboutLine").innerHTML =
+    `<b>${esc(APP_NAME)}</b> — personal ledger, version ${esc(APP_VER)}<br>` +
+    `© ${new Date().getFullYear()} ${esc(APP_OWNER)}. All rights reserved.<br>` +
+    `<span style="opacity:.8">Your ledger and the details you print are yours; ` +
+    `this covers the app itself.</span>`;
   $("#ccEg").textContent = db.settings.cc||"92";
   $("#pinState").textContent = hasPin()
     ? "🔒 PIN is on — asked when you open the app."
@@ -1360,6 +1375,7 @@ $("#brandSave").onclick = ()=>{
   const S = db.settings;
   S.brand     = $("#setBrand").value.trim();
   S.signatory = $("#setSigner").value.trim();
+  S.phone     = $("#setPhone").value.trim();
   S.email     = $("#setEmail").value.trim();
   save(); renderSettings(); alert("Saved. It will show on your next printed statement.");
 };
@@ -1459,7 +1475,10 @@ function welcomeSheet(){
     <button class="btn sec" id="wSkip">Not now</button>
     <p class="muted" style="margin-top:12px">You can add or change it any time in
     <b>Settings → App lock</b>. Remember to back up regularly too — an encrypted
-    backup is the only way to move your data to another phone.</p>`);
+    backup is the only way to move your data to another phone.</p>
+    <p class="muted">Add your own name, phone and logo under
+    <b>Settings → Your details on statements</b> so they appear on anything
+    you print.</p>`);
   const seen = ()=>{ db.settings.seenWelcome = true; save(); };
   $("#wSkip").onclick = ()=>{ seen(); closeSheet(); };
   $("#wPin").onclick  = ()=>{ seen(); closeSheet(); startLock("set"); };
