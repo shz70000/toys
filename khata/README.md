@@ -52,6 +52,14 @@ never a popup, never a silent download.
 To restore on any phone: Settings → **Restore from backup file** → pick the
 file → enter the password. Wrong passwords simply re-prompt.
 
+Saved files are timestamped to the second (`khata-backup-2026-08-25_221407.json`),
+so backing up twice in a row never overwrites the earlier file. Printed
+statements are named the same way, per contact.
+
+If you let the browser generate and save the password, **check your own copy
+too**: after a backup the app shows the password with a Copy button, because
+password managers do not always offer a saved password back later.
+
 > **⚠️ Lose the password and the backup is unreadable — permanently.** That is
 > what encryption means; there is no recovery route, for you or anyone else.
 

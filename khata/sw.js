@@ -1,6 +1,6 @@
 /* Service worker: caches the app shell so Khata opens with no internet.
    Bump CACHE when you change any file, so phones pick up the new version. */
-const CACHE = "khata-v4";
+const CACHE = "khata-v5";
 const SHELL = [
   "./", "./index.html", "./manifest.json",
   "./icon-192.png", "./icon-512.png", "./icon-maskable.png"

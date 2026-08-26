@@ -950,7 +950,24 @@ function tableHTML(rows,{running=false, showParty=true}={}){
       ${running?`<td class="num">${esc(money(out-inn))}</td>`:""}</tr></tfoot></table>`;
 }
 const inPreview = ()=>{ try{ return window.self !== window.top; }catch(e){ return true; } };
-function doPrint(title,sub,meta,inner){
+const pad2 = n => String(n).padStart(2,"0");
+/* 2026-08-25_221407 — date and time to the second, so saving two files one
+   after another never overwrites the first */
+function stamp(d){
+  d = d || new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`+
+         `_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+}
+function slug(s){
+  return String(s||"").trim().replace(/[^\w؀-ۿ]+/g,"-")
+    .replace(/^-+|-+$/g,"").slice(0,40) || "statement";
+}
+/* Captured once at load: printing two statements in a row must not restore
+   the tab title to the previous statement's filename. */
+const APP_TITLE = document.title;
+let titleTimer = null;
+function restoreTitle(){ clearTimeout(titleTimer); document.title = APP_TITLE; }
+function doPrint(title,sub,meta,inner,fileName){
   $("#printArea").innerHTML =
     `<div class="pr-head"><h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
@@ -961,8 +978,15 @@ function doPrint(title,sub,meta,inner){
     return alert("Printing is blocked inside this preview window.\n\n"+
       "Open the app from its own web address (or the installed app) and the "+
       "Print / Save-as-PDF dialog will appear normally.");
+  // Browsers name the saved PDF after the page title, so give each one a
+  // distinct, timestamped name and put the real title back afterwards.
+  if(fileName) document.title = fileName;
+  window.addEventListener("afterprint", restoreTitle, {once:true});
+  window.addEventListener("focus", restoreTitle, {once:true});
+  clearTimeout(titleTimer);
+  titleTimer = setTimeout(restoreTitle, 10000); // fallback if neither fires
   try{ window.print(); }
-  catch(e){ alert("This browser would not open the print dialog.\n\n"+e.message); }
+  catch(e){ restoreTitle(); alert("This browser would not open the print dialog.\n\n"+e.message); }
 }
 function printStatement(id){
   const p=party(id); if(!p) return;
@@ -970,7 +994,8 @@ function printStatement(id){
   doPrint("Account Statement", p.name + (p.phone? " · "+p.phone : ""),
     `<span>Printed: ${esc(fmtDT(new Date().toISOString()))}</span>
      <span>Closing balance: <b>${esc(money(b))}</b> ${b>0?"(receivable)":b<0?"(payable)":""}</span>`,
-    tableHTML(rows,{running:true, showParty:false}));
+    tableHTML(rows,{running:true, showParty:false}),
+    `${slug(p.name)}-statement-${stamp()}`);
 }
 function printReport(){
   const r = repRange.from||repRange.to
@@ -978,7 +1003,8 @@ function printReport(){
     : "All dates";
   doPrint("Transaction Report", r,
     `<span>Printed: ${esc(fmtDT(new Date().toISOString()))}</span>
-     <span>${repRows.length} entries</span>`, tableHTML(repRows));
+     <span>${repRows.length} entries</span>`, tableHTML(repRows),
+    `khata-report-${stamp()}`);
 }
 
 /* ====================== csv / backup ====================== */
@@ -1039,7 +1065,7 @@ function downloadCSV(rows,base){
       t.cat, t.dir==="out"?"Gave":"Got", t.amount, t.note||"", t.dueDate||""].map(q).join(",");
   });
   return saveFile("﻿"+[head.map(q).join(","),...body].join("\r\n"),
-    `${base}-${new Date().toISOString().slice(0,10)}.csv`, "text/csv;charset=utf-8");
+    `${base}-${stamp()}.csv`, "text/csv;charset=utf-8");
 }
 /* ====================== encrypted backup ======================
    The file is real AES-256-GCM, with the key stretched from your password by
@@ -1107,28 +1133,46 @@ function askPinConfirm(msg){
 }
 
 /* password sheet — resolves to the password, or null if cancelled */
+/* A real <form> with a username field, because password managers only offer to
+   save (and later fill) a credential they can key to an account. Without these
+   Chrome may take a suggested password and never hand it back. */
 function askPassword({title, msg, confirm:needConfirm, action}){
   return new Promise(resolve=>{
     openSheet(`<h3>${esc(title)}</h3>
       <p class="muted">${msg}</p>
-      <label>Password</label>
-      <input id="pw1" type="password" autocomplete="new-password" placeholder="at least 6 characters">
-      ${needConfirm?`<label>Repeat password</label>
-      <input id="pw2" type="password" autocomplete="new-password">`:""}
-      <p class="muted" id="pwErr" style="color:var(--pay);min-height:1.1em"></p>
-      <button class="btn" id="pwGo">${esc(action)}</button>
-      <button class="btn sec" id="pwCancel">Cancel</button>`);
+      <form id="pwForm" autocomplete="on">
+        <label>Backup name</label>
+        <input id="pwUser" name="username" type="text" autocomplete="username"
+               value="Khata backup" readonly
+               style="color:var(--muted);background:var(--card)">
+        <label>Password</label>
+        <input id="pw1" name="password" type="password"
+               autocomplete="${needConfirm?"new-password":"current-password"}"
+               placeholder="at least 6 characters">
+        ${needConfirm?`<label>Repeat password</label>
+        <input id="pw2" name="password2" type="password" autocomplete="new-password">`:""}
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+          <input type="checkbox" id="pwShow" style="width:auto"> Show password
+        </label>
+        <p class="muted" id="pwErr" style="color:var(--pay);min-height:1.1em"></p>
+        <button class="btn" id="pwGo" type="submit">${esc(action)}</button>
+        <button class="btn sec" id="pwCancel" type="button">Cancel</button>
+      </form>`);
     const done = v =>{ closeSheet(); resolve(v); };
     $("#pwCancel").onclick = ()=> done(null);
     $("#pw1").focus();
-    $("#pwGo").onclick = ()=>{
+    $("#pwShow").onchange = e=>{
+      const t = e.target.checked ? "text" : "password";
+      $("#pw1").type = t; if($("#pw2")) $("#pw2").type = t;
+    };
+    $("#pwForm").onsubmit = e=>{
+      e.preventDefault();
       const a = $("#pw1").value;
       if(a.length < 6) return $("#pwErr").textContent = "Use at least 6 characters.";
       if(needConfirm && a !== $("#pw2").value)
         return $("#pwErr").textContent = "The two passwords don't match.";
       done(a);
     };
-    $("#pw1").onkeydown = e=>{ if(e.key==="Enter" && !needConfirm) $("#pwGo").click(); };
   });
 }
 
@@ -1143,12 +1187,31 @@ async function backupNow(){
   let text;
   try{ text = await encryptBackup(pw); }
   catch(e){ return alert("Could not encrypt the backup.\n\n"+e.message); }
-  const name = `khata-backup-${new Date().toISOString().slice(0,10)}.json`;
+  const name = `khata-backup-${stamp()}.json`;
   const ok = await saveFile(text, name, "application/json");
   if(!ok) return;                                   // don't claim a backup that never saved
   db.settings.lastBackup = new Date().toISOString(); save(); renderSettings();
-  alert("Backup saved and encrypted.\n\nMove it to Google Drive to keep it safe, "+
-        "and remember the password — it is the only way back in.");
+  /* Password managers don't always offer a saved password back later, so give
+     one last chance to record it somewhere the user controls. */
+  openSheet(`<h3>✅ Backup saved</h3>
+    <p><b>${esc(name)}</b> is encrypted and ready. Move it to Google Drive or
+    another safe place.</p>
+    <p style="color:var(--pay)"><b>This password is the only way to open it.</b>
+    If your browser offered to save it, check it really was saved — and keep
+    your own copy too.</p>
+    <label>Password used</label>
+    <input id="bkShown" type="password" value="${esc(pw)}" readonly>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <input type="checkbox" id="bkReveal" style="width:auto"> Show it
+    </label>
+    <button class="btn sec" id="bkCopy">📋 Copy password</button>
+    <button class="btn" id="bkDone">Done</button>`);
+  $("#bkReveal").onchange = e=> $("#bkShown").type = e.target.checked? "text":"password";
+  $("#bkCopy").onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(pw); $("#bkCopy").textContent = "✅ Copied"; }
+    catch(e){ $("#bkShown").type="text"; $("#bkCopy").textContent = "Copy failed — shown above"; }
+  };
+  $("#bkDone").onclick = closeSheet;
 }
 function renderSettings(){
   const lb = db.settings.lastBackup;
