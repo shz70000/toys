@@ -95,17 +95,28 @@ Party screen → **Print / PDF**, or Reports → **Print / PDF**.
 In the print dialog choose **Save as PDF** for a PDF, or a printer for paper.
 Statements include a running balance, totals and signature lines.
 
-## Your name on statements
+## Your letterhead
 
-Settings → **Your name on statements** sets two things:
+Settings → **Your name on statements** builds the header and footer of every
+printed statement and report. Every field is optional — anything left blank is
+simply left off.
 
-- **Business / brand name** — printed above the statement title and used in the
-  copyright footer. Defaults to `MindMeld Nexus`.
-- **Signature name** (optional) — printed under the authorised signature line,
-  with "for <brand>" beneath it.
+| Field | Where it prints |
+|---|---|
+| Logo | Top, centred, above the name |
+| Business / brand name | Heading, and the copyright line |
+| Phone · Email · Website | One line under the name, blanks skipped |
+| Address | Line below that |
+| Signature name | Under the signature line, with "for <brand>" |
+| Registration / NTN | Footer, beside the copyright |
+| Footer note | Footer, italic — terms, thanks, anything |
 
-Both appear on statements and reports. Clearing the brand removes the heading
-and the footer entirely.
+Logos are resized to fit 360×140 and stored as PNG (typically a few KB), so a
+photo taken on a phone will not eat into the ~5 MB storage budget. Images that
+still exceed 300 KB are rejected with a message rather than saved.
+
+Every statement also carries "Computer-generated statement — valid without a
+stamp.", which is the usual wording for an unsigned printed record.
 
 ## Erasing data
 

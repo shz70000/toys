@@ -174,7 +174,10 @@ body.locked #lock{display:flex}
   .pr-head{text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
   .pr-head h1{margin:0 0 4px;font-size:19px}
   .pr-sub{font-size:11px;color:#333}
-  .pr-brand{font-size:15px;font-weight:bold;letter-spacing:.5px;margin-bottom:4px}
+  .pr-brand{font-size:15px;font-weight:bold;letter-spacing:.5px;margin-bottom:2px}
+  .pr-logo{max-height:46px;max-width:180px;object-fit:contain;margin-bottom:6px}
+  .pr-contact{font-size:9.5px;color:#444;margin-bottom:2px;white-space:pre-line}
+  .pr-terms{margin-bottom:3px;font-style:italic}
   .pr-for{font-size:9px;color:#444;border:0;padding-top:2px;width:100%;text-align:center}
   .pr-foot{margin-top:26px;padding-top:8px;border-top:1px solid #bbb;
     text-align:center;font-size:9px;color:#555}
@@ -318,8 +321,29 @@ body.locked #lock{display:flex}
       <input id="setBrand" maxlength="60" placeholder="MindMeld Nexus">
       <label>Signature name (optional)</label>
       <input id="setSigner" maxlength="60" placeholder="e.g. Shazaib Dilawar">
-      <p class="muted">These appear at the top of every printed statement, above
-      the signature line, and in the copyright footer.</p>
+
+      <label>Phone</label>
+      <input id="setPhone" type="tel" maxlength="40" placeholder="0300-1234567">
+      <label>Email</label>
+      <input id="setEmail" type="email" maxlength="60" placeholder="you@example.com">
+      <label>Website</label>
+      <input id="setWeb" maxlength="60" placeholder="mindmeldnexus.com">
+      <label>Address</label>
+      <textarea id="setAddr" maxlength="160" placeholder="Shop 4, Main Bazaar, Lahore"></textarea>
+      <label>Registration / NTN number</label>
+      <input id="setTax" maxlength="40" placeholder="NTN 1234567-8">
+      <label>Footer note (terms, thanks, anything)</label>
+      <textarea id="setFoot" maxlength="200" placeholder="Please settle within 30 days. Thank you for your business."></textarea>
+
+      <label>Logo</label>
+      <div class="btnrow">
+        <button class="btn sec" id="logoPick" style="margin-top:0">🖼️ Choose logo</button>
+        <button class="btn sec" id="logoDrop" style="margin-top:0">Remove</button>
+      </div>
+      <input type="file" id="logoFile" accept="image/*" class="hide">
+      <div id="logoPrev" style="margin-top:10px"></div>
+
+      <p class="muted">Anything left blank is simply left off the statement.</p>
       <button class="btn" id="brandSave">Save</button>
     </div>
     <div class="card pad" id="aboutCard">
@@ -381,7 +405,9 @@ const CATS = ["Loan","Repayment","Deposit","Receipt","Advance","Expense","Other"
 const blank = () => ({version:1,
   settings:{currency:"PKR",theme:"auto",remindDays:1,lastBackup:null,
             cc:"92", pinHash:null, pinSalt:null,
-            brand:"MindMeld Nexus", signatory:""},
+            brand:"MindMeld Nexus", signatory:"",
+            phone:"", email:"", web:"", address:"", taxId:"",
+            footNote:"", logo:null},
   parties:[], txns:[]});
 
 /* If stored data can't be parsed we must NEVER overwrite it with an empty
@@ -987,12 +1013,20 @@ const APP_TITLE = document.title;
 let titleTimer = null;
 function restoreTitle(){ clearTimeout(titleTimer); document.title = APP_TITLE; }
 function doPrint(title,sub,meta,inner,fileName){
-  const brand = (db.settings.brand||"").trim();
-  const who   = (db.settings.signatory||"").trim();
-  const year  = new Date().getFullYear();
+  const S = db.settings, t = k => String(S[k]||"").trim();
+  const brand = t("brand"), who = t("signatory"), year = new Date().getFullYear();
+  // phone · email · website, skipping whatever is blank
+  const contact = ["phone","email","web"].map(t).filter(Boolean).join("  ·  ");
+  const footBits = [
+    brand ? `© ${year} ${esc(brand)}` : "",
+    t("taxId") ? esc(t("taxId")) : ""
+  ].filter(Boolean).join("  ·  ");
   $("#printArea").innerHTML =
     `<div class="pr-head">
+       ${S.logo? `<img class="pr-logo" src="${esc(S.logo)}" alt="">`:""}
        ${brand? `<div class="pr-brand">${esc(brand)}</div>`:""}
+       ${contact? `<div class="pr-contact">${esc(contact)}</div>`:""}
+       ${t("address")? `<div class="pr-contact">${esc(t("address"))}</div>`:""}
        <h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
      <div class="pr-sign">
@@ -1000,7 +1034,11 @@ function doPrint(title,sub,meta,inner,fileName){
        <div>${esc(who || "Authorised signature")}${
          brand? `<div class="pr-for">for ${esc(brand)}</div>`:""}</div>
      </div>
-     ${brand? `<div class="pr-foot">© ${year} ${esc(brand)}. All rights reserved.</div>`:""}`;
+     <div class="pr-foot">
+       ${t("footNote")? `<div class="pr-terms">${esc(t("footNote"))}</div>`:""}
+       ${footBits? `<div>${footBits}</div>`:""}
+       <div>Computer-generated statement — valid without a stamp.</div>
+     </div>`;
   // Previews run the page inside a frame that blocks printing, so say so
   // rather than appearing to do nothing.
   if(inPreview())
@@ -1253,6 +1291,17 @@ function renderSettings(){
   $("#setCC").value = db.settings.cc||"";
   $("#setBrand").value  = db.settings.brand||"";
   $("#setSigner").value = db.settings.signatory||"";
+  $("#setPhone").value  = db.settings.phone||"";
+  $("#setEmail").value  = db.settings.email||"";
+  $("#setWeb").value    = db.settings.web||"";
+  $("#setAddr").value   = db.settings.address||"";
+  $("#setTax").value    = db.settings.taxId||"";
+  $("#setFoot").value   = db.settings.footNote||"";
+  $("#logoPrev").innerHTML = db.settings.logo
+    ? `<img src="${esc(db.settings.logo)}" alt="logo"
+         style="max-height:56px;max-width:180px;border:1px solid var(--border);
+                border-radius:8px;padding:6px;background:#fff">`
+    : `<span class="muted">No logo — the statement just shows your name.</span>`;
   $("#aboutLine").innerHTML = "Khata — personal ledger<br>© " +
     new Date().getFullYear() + " " + esc(db.settings.brand||"MindMeld Nexus") +
     ". All rights reserved.";
@@ -1337,9 +1386,47 @@ $("#setSave").onclick = ()=>{
   save(); render(); alert("Preferences saved.");
 };
 $("#brandSave").onclick = ()=>{
-  db.settings.brand     = $("#setBrand").value.trim();
-  db.settings.signatory = $("#setSigner").value.trim();
+  const S = db.settings;
+  S.brand     = $("#setBrand").value.trim();
+  S.signatory = $("#setSigner").value.trim();
+  S.phone     = $("#setPhone").value.trim();
+  S.email     = $("#setEmail").value.trim();
+  S.web       = $("#setWeb").value.trim();
+  S.address   = $("#setAddr").value.trim();
+  S.taxId     = $("#setTax").value.trim();
+  S.footNote  = $("#setFoot").value.trim();
   save(); renderSettings(); alert("Saved. It will show on your next printed statement.");
+};
+/* Logos are shrunk before storing: a phone photo would otherwise eat a large
+   slice of the ~5 MB the browser allows. */
+$("#logoPick").onclick = ()=> $("#logoFile").click();
+$("#logoDrop").onclick = ()=>{
+  if(!db.settings.logo) return;
+  if(!confirm("Remove the logo from your statements?")) return;
+  db.settings.logo = null; save(); renderSettings();
+};
+$("#logoFile").onchange = e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const MAX_W = 360, MAX_H = 140;
+      const k = Math.min(MAX_W/img.width, MAX_H/img.height, 1);
+      const c = document.createElement("canvas");
+      c.width  = Math.max(1, Math.round(img.width * k));
+      c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const url = c.toDataURL("image/png");
+      if(url.length > 300000)
+        return alert("That image is too detailed to store. Try a smaller or simpler logo.");
+      db.settings.logo = url; save(); renderSettings();
+      alert("Logo saved — it will appear at the top of your statements.");
+    };
+    img.onerror = ()=> alert("That file could not be read as an image.");
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
 };
 $("#pinBtn").onclick = ()=> startLock("set");
 $("#pinOff").onclick = ()=>{
