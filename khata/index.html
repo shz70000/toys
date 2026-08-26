@@ -177,7 +177,6 @@ body.locked #lock{display:flex}
   .pr-brand{font-size:15px;font-weight:bold;letter-spacing:.5px;margin-bottom:2px}
   .pr-logo{max-height:46px;max-width:180px;object-fit:contain;margin-bottom:6px}
   .pr-contact{font-size:9.5px;color:#444;margin-bottom:2px;white-space:pre-line}
-  .pr-terms{margin-bottom:3px;font-style:italic}
   .pr-for{font-size:9px;color:#444;border:0;padding-top:2px;width:100%;text-align:center}
   .pr-foot{margin-top:26px;padding-top:8px;border-top:1px solid #bbb;
     text-align:center;font-size:9px;color:#555}
@@ -319,21 +318,10 @@ body.locked #lock{display:flex}
       <h2>Your name on statements</h2>
       <label>Business / brand name</label>
       <input id="setBrand" maxlength="60" placeholder="MindMeld Nexus">
-      <label>Signature name (optional)</label>
-      <input id="setSigner" maxlength="60" placeholder="e.g. Shazaib Dilawar">
-
-      <label>Phone</label>
-      <input id="setPhone" type="tel" maxlength="40" placeholder="0300-1234567">
       <label>Email</label>
       <input id="setEmail" type="email" maxlength="60" placeholder="you@example.com">
-      <label>Website</label>
-      <input id="setWeb" maxlength="60" placeholder="mindmeldnexus.com">
-      <label>Address</label>
-      <textarea id="setAddr" maxlength="160" placeholder="Shop 4, Main Bazaar, Lahore"></textarea>
-      <label>Registration / NTN number</label>
-      <input id="setTax" maxlength="40" placeholder="NTN 1234567-8">
-      <label>Footer note (terms, thanks, anything)</label>
-      <textarea id="setFoot" maxlength="200" placeholder="Please settle within 30 days. Thank you for your business."></textarea>
+      <label>Signature name (optional)</label>
+      <input id="setSigner" maxlength="60" placeholder="e.g. Shazaib Dilawar">
 
       <label>Logo</label>
       <div class="btnrow">
@@ -406,8 +394,7 @@ const blank = () => ({version:1,
   settings:{currency:"PKR",theme:"auto",remindDays:1,lastBackup:null,
             cc:"92", pinHash:null, pinSalt:null,
             brand:"MindMeld Nexus", signatory:"",
-            phone:"", email:"", web:"", address:"", taxId:"",
-            footNote:"", logo:null},
+            email:"nawaztahir2k@gmail.com", logo:null},
   parties:[], txns:[]});
 
 /* If stored data can't be parsed we must NEVER overwrite it with an empty
@@ -1015,18 +1002,11 @@ function restoreTitle(){ clearTimeout(titleTimer); document.title = APP_TITLE; }
 function doPrint(title,sub,meta,inner,fileName){
   const S = db.settings, t = k => String(S[k]||"").trim();
   const brand = t("brand"), who = t("signatory"), year = new Date().getFullYear();
-  // phone · email · website, skipping whatever is blank
-  const contact = ["phone","email","web"].map(t).filter(Boolean).join("  ·  ");
-  const footBits = [
-    brand ? `© ${year} ${esc(brand)}` : "",
-    t("taxId") ? esc(t("taxId")) : ""
-  ].filter(Boolean).join("  ·  ");
   $("#printArea").innerHTML =
     `<div class="pr-head">
        ${S.logo? `<img class="pr-logo" src="${esc(S.logo)}" alt="">`:""}
        ${brand? `<div class="pr-brand">${esc(brand)}</div>`:""}
-       ${contact? `<div class="pr-contact">${esc(contact)}</div>`:""}
-       ${t("address")? `<div class="pr-contact">${esc(t("address"))}</div>`:""}
+       ${t("email")? `<div class="pr-contact">${esc(t("email"))}</div>`:""}
        <h1>${esc(title)}</h1><div class="pr-sub">${esc(sub)}</div></div>
      <div class="pr-meta">${meta}</div>${inner}
      <div class="pr-sign">
@@ -1034,11 +1014,7 @@ function doPrint(title,sub,meta,inner,fileName){
        <div>${esc(who || "Authorised signature")}${
          brand? `<div class="pr-for">for ${esc(brand)}</div>`:""}</div>
      </div>
-     <div class="pr-foot">
-       ${t("footNote")? `<div class="pr-terms">${esc(t("footNote"))}</div>`:""}
-       ${footBits? `<div>${footBits}</div>`:""}
-       <div>Computer-generated statement — valid without a stamp.</div>
-     </div>`;
+     ${brand? `<div class="pr-foot">© ${year} ${esc(brand)}</div>`:""}`;
   // Previews run the page inside a frame that blocks printing, so say so
   // rather than appearing to do nothing.
   if(inPreview())
@@ -1291,12 +1267,7 @@ function renderSettings(){
   $("#setCC").value = db.settings.cc||"";
   $("#setBrand").value  = db.settings.brand||"";
   $("#setSigner").value = db.settings.signatory||"";
-  $("#setPhone").value  = db.settings.phone||"";
   $("#setEmail").value  = db.settings.email||"";
-  $("#setWeb").value    = db.settings.web||"";
-  $("#setAddr").value   = db.settings.address||"";
-  $("#setTax").value    = db.settings.taxId||"";
-  $("#setFoot").value   = db.settings.footNote||"";
   $("#logoPrev").innerHTML = db.settings.logo
     ? `<img src="${esc(db.settings.logo)}" alt="logo"
          style="max-height:56px;max-width:180px;border:1px solid var(--border);
@@ -1389,12 +1360,7 @@ $("#brandSave").onclick = ()=>{
   const S = db.settings;
   S.brand     = $("#setBrand").value.trim();
   S.signatory = $("#setSigner").value.trim();
-  S.phone     = $("#setPhone").value.trim();
   S.email     = $("#setEmail").value.trim();
-  S.web       = $("#setWeb").value.trim();
-  S.address   = $("#setAddr").value.trim();
-  S.taxId     = $("#setTax").value.trim();
-  S.footNote  = $("#setFoot").value.trim();
   save(); renderSettings(); alert("Saved. It will show on your next printed statement.");
 };
 /* Logos are shrunk before storing: a phone photo would otherwise eat a large

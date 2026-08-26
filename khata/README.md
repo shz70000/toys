@@ -97,26 +97,23 @@ Statements include a running balance, totals and signature lines.
 
 ## Your letterhead
 
-Settings → **Your name on statements** builds the header and footer of every
-printed statement and report. Every field is optional — anything left blank is
-simply left off.
+Settings → **Your name on statements** sets the header and footer of every
+printed statement and report. Deliberately minimal — four fields:
 
 | Field | Where it prints |
 |---|---|
 | Logo | Top, centred, above the name |
-| Business / brand name | Heading, and the copyright line |
-| Phone · Email · Website | One line under the name, blanks skipped |
-| Address | Line below that |
-| Signature name | Under the signature line, with "for <brand>" |
-| Registration / NTN | Footer, beside the copyright |
-| Footer note | Footer, italic — terms, thanks, anything |
+| Business / brand name | Heading, and the `© <year>` footer |
+| Email | One line under the name |
+| Signature name (optional) | Under the signature line, with "for <brand>" |
 
-Logos are resized to fit 360×140 and stored as PNG (typically a few KB), so a
-photo taken on a phone will not eat into the ~5 MB storage budget. Images that
-still exceed 300 KB are rejected with a message rather than saved.
+Anything left blank is left off. Clearing the brand removes the heading and the
+footer entirely.
 
-Every statement also carries "Computer-generated statement — valid without a
-stamp.", which is the usual wording for an unsigned printed record.
+Logos are resized to fit 360×140 and stored as PNG (usually a few KB), so a
+phone photo will not eat into the ~5 MB storage budget. Anything still over
+300 KB is rejected with a message rather than saved. The logo travels inside
+your encrypted backup, so restoring on a new phone brings it back.
 
 ## Erasing data
 
