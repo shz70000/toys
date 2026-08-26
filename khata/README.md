@@ -95,6 +95,18 @@ Party screen → **Print / PDF**, or Reports → **Print / PDF**.
 In the print dialog choose **Save as PDF** for a PDF, or a printer for paper.
 Statements include a running balance, totals and signature lines.
 
+## Your name on statements
+
+Settings → **Your name on statements** sets two things:
+
+- **Business / brand name** — printed above the statement title and used in the
+  copyright footer. Defaults to `MindMeld Nexus`.
+- **Signature name** (optional) — printed under the authorised signature line,
+  with "for <brand>" beneath it.
+
+Both appear on statements and reports. Clearing the brand removes the heading
+and the footer entirely.
+
 ## Erasing data
 
 Settings → **Erase all data** is the only irreversible action. It asks in an
