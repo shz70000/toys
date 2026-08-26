@@ -52,6 +52,14 @@ never a popup, never a silent download.
 To restore on any phone: Settings → **Restore from backup file** → pick the
 file → enter the password. Wrong passwords simply re-prompt.
 
+Saved files are timestamped to the second (`khata-backup-2026-08-25_221407.json`),
+so backing up twice in a row never overwrites the earlier file. Printed
+statements are named the same way, per contact.
+
+If you let the browser generate and save the password, **check your own copy
+too**: after a backup the app shows the password with a Copy button, because
+password managers do not always offer a saved password back later.
+
 > **⚠️ Lose the password and the backup is unreadable — permanently.** That is
 > what encryption means; there is no recovery route, for you or anyone else.
 
@@ -86,6 +94,35 @@ Numbers already stored as `+92…` or `0092…` are handled too.
 Party screen → **Print / PDF**, or Reports → **Print / PDF**.
 In the print dialog choose **Save as PDF** for a PDF, or a printer for paper.
 Statements include a running balance, totals and signature lines.
+
+## Your letterhead
+
+Settings → **Your details on statements**. These belong to whoever is using
+the app and start empty, so each person fills in their own:
+
+| Field | Where it prints |
+|---|---|
+| Logo | Top, centred |
+| Your name or business name | Heading, and "for <name>" under the signature |
+| Phone · Email | One line beneath, blanks skipped |
+| Signature name (optional) | Under the signature line |
+
+Anything left blank is left off — a statement prints fine with none of it set.
+
+Logos are resized to fit 360×140 and stored as PNG (usually a few KB), so a
+phone photo will not eat into the ~5 MB storage budget. Anything still over
+300 KB is rejected with a message rather than saved. The logo travels inside
+your encrypted backup, so restoring on a new phone brings it back.
+
+## Who owns what
+
+Two separate things, deliberately kept apart:
+
+- **The app** is © MindMeld Nexus. That is fixed in `APP_NAME` / `APP_OWNER`
+  near the top of the script, shown in Settings → About, and printed as a small
+  "Khata by MindMeld Nexus" credit at the foot of each statement.
+- **The ledger and the letterhead** belong to the person using the app. No
+  personal details are baked into the source.
 
 ## Erasing data
 
