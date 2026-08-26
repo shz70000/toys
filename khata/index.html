@@ -136,12 +136,6 @@ textarea{resize:vertical;min-height:60px}
   font-weight:600;font-size:.82rem}
 .banner button#bkBannerX{background:transparent;color:var(--muted);font-size:1rem;padding:6px 8px}
 
-/* storage meter */
-.meter{height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin:8px 0 6px}
-.meter span{display:block;height:100%;background:var(--accent);border-radius:99px}
-.meter.warn span{background:#f59e0b}
-.meter.full span{background:var(--pay)}
-
 .totrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--border)}
 .totrow:last-child{border-bottom:none;font-weight:700;font-size:1.05rem;padding-top:11px}
 
@@ -355,8 +349,6 @@ body.locked #lock{display:flex}
     <div class="card pad">
       <h2>Data</h2>
       <p class="muted" id="statLine"></p>
-      <div class="meter" id="meter"><span style="width:0"></span></div>
-      <p class="muted" id="spaceLine"></p>
       <button class="btn sec" id="exCsv">⬇️ Export all as CSV</button>
       <button class="btn danger" id="wipe">🗑️ Erase all data</button>
     </div>
@@ -409,36 +401,95 @@ const blank = () => ({version:1,
 /* If stored data can't be parsed we must NEVER overwrite it with an empty
    ledger — it may still be recoverable by hand. Park it under a rescue key,
    tell the user, and refuse to auto-save until they act. */
-let storageOK = true;
-let db = load();
-function load(){
-  let raw = null;
-  try{
-    raw = localStorage.getItem(KEY);
-    if(!raw) return blank();
-    const d = JSON.parse(raw);
-    if(!d || !Array.isArray(d.parties) || !Array.isArray(d.txns))
-      throw new Error("unexpected shape");
-    return Object.assign(blank(), d,
-      {settings:Object.assign(blank().settings, d.settings||{})});
-  }catch(e){
-    console.error("load failed", e);
-    storageOK = false;
-    try{
-      const rescue = KEY+"_damaged_"+Date.now();
-      if(raw) localStorage.setItem(rescue, raw);
-      setTimeout(()=>alert(
-        "Your saved data could not be read, so the app opened empty.\n\n"+
-        "The old data has NOT been deleted — it is kept under \""+rescue+"\".\n"+
-        "Restore your latest backup file from Settings, or ask for help recovering it.\n\n"+
-        "Nothing will be saved over it until you restore or erase."),400);
-    }catch(_){}
-    return blank();
-  }
+/* Storage lives in IndexedDB, which the browser gives hundreds of megabytes,
+   rather than localStorage's ~5 MB. localStorage remains a fallback for
+   browsers where IndexedDB is unavailable (private mode on some phones), and
+   any data written by an older version is migrated across on first run. */
+const IDB_NAME = "khata", IDB_STORE = "kv", IDB_KEY = "db";
+let storageOK = true, storageMode = "idb";
+let db = blank();
+
+function idbOpen(){
+  return new Promise((res, rej)=>{
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = ()=>{
+      if(!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE);
+    };
+    r.onsuccess = ()=> res(r.result);
+    r.onerror   = ()=> rej(r.error);
+  });
 }
+function idbReq(mode, fn){
+  return idbOpen().then(conn => new Promise((res, rej)=>{
+    const tx = conn.transaction(IDB_STORE, mode);
+    const rq = fn(tx.objectStore(IDB_STORE));
+    rq.onsuccess = ()=> res(rq.result);
+    rq.onerror   = ()=> rej(rq.error);
+    tx.oncomplete = ()=> conn.close();
+  }));
+}
+const idbGet = ()   => idbReq("readonly",  st => st.get(IDB_KEY));
+const idbPut = val  => idbReq("readwrite", st => st.put(val, IDB_KEY));
+
+function shapeOK(d){ return d && Array.isArray(d.parties) && Array.isArray(d.txns); }
+function hydrate(d){
+  return Object.assign(blank(), d, {settings:Object.assign(blank().settings, d.settings||{})});
+}
+function damaged(raw){
+  storageOK = false;
+  try{
+    const rescue = KEY+"_damaged_"+Date.now();
+    if(raw) localStorage.setItem(rescue, typeof raw==="string"? raw : JSON.stringify(raw));
+    setTimeout(()=>alert(
+      "Your saved data could not be read, so the app opened empty.\n\n"+
+      "The old data has NOT been deleted — it is kept under \""+rescue+"\".\n"+
+      "Restore your latest backup file from Settings, or ask for help recovering it.\n\n"+
+      "Nothing will be saved over it until you restore or erase."),400);
+  }catch(_){}
+  return blank();
+}
+
+async function loadDB(){
+  // 1. IndexedDB, the normal path
+  try{
+    const v = await idbGet();
+    if(v !== undefined && v !== null){
+      if(!shapeOK(v)) return damaged(v);
+      return hydrate(v);
+    }
+  }catch(e){
+    console.warn("IndexedDB unavailable, falling back to localStorage", e);
+    storageMode = "ls";
+  }
+  // 2. Nothing in IndexedDB — carry across anything an older version saved
+  let raw = null;
+  try{ raw = localStorage.getItem(KEY); }catch(_){}
+  if(!raw) return blank();
+  let parsed;
+  try{ parsed = JSON.parse(raw); }catch(e){ return damaged(raw); }
+  if(!shapeOK(parsed)) return damaged(raw);
+  const migrated = hydrate(parsed);
+  if(storageMode === "idb"){
+    try{
+      await idbPut(migrated);          // only drop the old copy once the new one is safe
+      try{ localStorage.removeItem(KEY); }catch(_){}
+      console.info("migrated ledger from localStorage to IndexedDB");
+    }catch(e){ storageMode = "ls"; }
+  }
+  return migrated;
+}
+
 let saveTimer=null;
 function writeNow(){
   if(!storageOK) return false;          // refuse to clobber damaged data
+  if(storageMode === "idb"){
+    idbPut(db).catch(e=>{
+      console.error("IndexedDB write failed", e);
+      storageMode = "ls";               // one retry through the fallback
+      writeNow();
+    });
+    return true;
+  }
   try{ localStorage.setItem(KEY, JSON.stringify(db)); return true; }
   catch(e){
     alert("Could not save — device storage may be full.\n\n"+
@@ -1148,8 +1199,12 @@ async function encryptBackup(pw){
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv   = crypto.getRandomValues(new Uint8Array(12));
   const key  = await deriveKey(pw, salt);
+  // The screen lock is a property of the phone, not of the ledger — leave it
+  // out so restoring never re-imposes an old PIN on a different device.
+  const payload = Object.assign({}, db, {settings:Object.assign({}, db.settings,
+    {pinHash:null, pinSalt:null, pinFails:0})});
   const ct   = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key,
-    new TextEncoder().encode(JSON.stringify(db)));
+    new TextEncoder().encode(JSON.stringify(payload)));
   return JSON.stringify({
     format:"khata-backup", version:1, encrypted:true,
     cipher:"AES-256-GCM", kdf:"PBKDF2-SHA256", iterations:KDF_ITER,
@@ -1297,24 +1352,8 @@ function renderSettings(){
     : "🔓 No PIN. Anyone opening the app can see your ledger.";
   $("#pinBtn").textContent = hasPin()? "Change PIN" : "Set a PIN";
   $("#pinOff").classList.toggle("hide", !hasPin());
-  /* Browsers cap this kind of storage at about 5 MB per site. Show how much
-     is left in entries, so the ceiling is never a surprise. */
-  const LIMIT = 5 * 1024 * 1024, PER_ENTRY = 220;
-  const used = JSON.stringify(db).length;
-  const pct  = Math.min(100, used / LIMIT * 100);
-  const left = Math.max(0, Math.floor((LIMIT - used) / PER_ENTRY));
   $("#statLine").textContent =
-    `${db.parties.length} contacts · ${live().length} entries · ` +
-    `${(used/1024).toFixed(0)} KB of about 5 MB`;
-  const m = $("#meter");
-  m.className = "meter" + (pct>=90 ? " full" : pct>=75 ? " warn" : "");
-  m.firstElementChild.style.width = Math.max(pct,1).toFixed(1)+"%";
-  $("#spaceLine").innerHTML = pct>=90
-    ? `<b style="color:var(--pay)">Almost full (${pct.toFixed(0)}%).</b> Back up now, then
-       delete old entries or start a fresh year to free room.`
-    : pct>=75
-    ? `<b>${pct.toFixed(0)}% used.</b> Room for roughly ${left.toLocaleString()} more entries.`
-    : `${pct.toFixed(1)}% used — room for roughly ${left.toLocaleString()} more entries.`;
+    `${db.parties.length} contacts · ${live().length} entries`;
 }
 $("#bkNow").onclick     = backupNow;
 $("#bkBannerGo").onclick = backupNow;
@@ -1359,8 +1398,13 @@ async function restoreFrom(text){
   const n = data.txns.filter(t=>!t.deletedAt).length;
   if(!confirm(`Restore ${data.parties.length} contacts and ${n} entries?\n\n`+
               `This REPLACES everything currently in the app.`)) return;
+  /* The PIN belongs to THIS device, not to the backup. Restoring used to bring
+     the old PIN back and lock people out of their own phone, so keep whatever
+     lock is set here and ignore any that the file carries. */
+  const keepLock = {pinHash:db.settings.pinHash, pinSalt:db.settings.pinSalt,
+                    pinFails:db.settings.pinFails||0};
   db = Object.assign(blank(), data,
-    {settings:Object.assign(blank().settings, data.settings||{})});
+    {settings:Object.assign(blank().settings, data.settings||{}, keepLock)});
   storageOK = true;                 // a good restore unlocks saving again
   writeNow(); applyTheme(); refreshPartyOptions(); go("home");
   alert(`Restored ${db.parties.length} contacts and ${live().length} entries.`);
@@ -1484,13 +1528,17 @@ function welcomeSheet(){
   $("#wPin").onclick  = ()=>{ seen(); closeSheet(); startLock("set"); };
 }
 
-go("home");
-if(hasPin()) startLock("verify");
-else {
-  unlockedAt = Date.now();
-  backupReminder();
-  if(!db.settings.seenWelcome) setTimeout(welcomeSheet, 500);
-}
+(async function start(){
+  db = await loadDB();                 // IndexedDB read is asynchronous
+  applyTheme(); refreshPartyOptions();
+  go("home");
+  if(hasPin()) startLock("verify");
+  else {
+    unlockedAt = Date.now();
+    backupReminder();
+    if(!db.settings.seenWelcome) setTimeout(welcomeSheet, 500);
+  }
+})();
 // Flush any debounced save when the app is closed or backgrounded.
 // visibilitychange is the reliable one on mobile; beforeunload often never fires.
 function flush(){ clearTimeout(saveTimer); writeNow(); }

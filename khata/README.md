@@ -75,6 +75,9 @@ The PIN itself is never stored — only a salted SHA-256 check value. That also
 means **a forgotten PIN cannot be recovered**: the way back in is to clear the
 app's site data and restore your backup file. Keep a backup.
 
+The lock belongs to the device, not to the data: backups do not carry a PIN,
+and restoring one never changes the PIN set on the phone you restore onto.
+
 > A PIN is a screen lock, not encryption. The ledger still sits in ordinary
 > browser storage, so someone with your unlocked phone and technical knowledge
 > could reach it. Your phone's own lock screen is the real protection.
@@ -109,10 +112,10 @@ the app and start empty, so each person fills in their own:
 
 Anything left blank is left off — a statement prints fine with none of it set.
 
-Logos are resized to fit 360×140 and stored as PNG (usually a few KB), so a
-phone photo will not eat into the ~5 MB storage budget. Anything still over
-300 KB is rejected with a message rather than saved. The logo travels inside
-your encrypted backup, so restoring on a new phone brings it back.
+Logos are resized to fit 360×140 and stored as PNG (usually a few KB).
+Anything still over 300 KB is rejected with a message rather than saved. The
+logo travels inside your encrypted backup, so restoring on a new phone brings
+it back.
 
 ## Who owns what
 
@@ -154,6 +157,18 @@ Print/PDF, CSV export and backups all behave normally.
 - Statements printed to PDF are not password protected — the browser's own
   Save-as-PDF has no way to set one.
 - No fingerprint unlock, receipt photos, or interest calculation yet.
+
+## Storage
+
+The ledger is kept in IndexedDB, which browsers allow hundreds of megabytes
+(around 950 MB when measured on Chrome) rather than localStorage's ~5 MB.
+At roughly 218 bytes per entry that is millions of entries — not a limit
+normal use will reach. 60,000 entries write in about 100 ms.
+
+Data written by earlier versions in localStorage is migrated to IndexedDB
+automatically on first run, and the old copy is removed only once the new one
+is safely written. If IndexedDB is unavailable, the app falls back to
+localStorage and its smaller limit.
 
 ## Changing things
 
